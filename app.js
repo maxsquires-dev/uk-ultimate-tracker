@@ -150,6 +150,28 @@ function heatGrid(rows, cols, cell, o = {}) {
       onTip(rect, () => [...(d.tip || [r.label + ' · ' + c, String(d.v || 0)]), ...(d.onclick && d.v ? [CLICK] : [])]); }); });
   return box;
 }
+/** two-column flow: links [{a, b, v, tip?, onclick?}] from left nodes to right nodes; colour by left node */
+function flow2(links, o = {}) {
+  const C = COL(), W = o.W || 1000, gap = 8, labW = o.labW || 170, nw = 12;
+  const L = [...new Set(links.map((l) => l.a))], Rn = [...new Set(links.map((l) => l.b))];
+  const sumBy = (k, n) => d3.sum(links.filter((l) => l[k] === n), (l) => l.v);
+  const order = (ns, k) => ns.sort((x, y) => (o.order ? o.order.indexOf(x) - o.order.indexOf(y) : 0) || sumBy(k, y) - sumBy(k, x));
+  order(L, 'a'); order(Rn, 'b');
+  const tot = d3.sum(links, (l) => l.v) || 1, H0 = o.H || Math.max(220, 26 * Math.max(L.length, Rn.length)), k = (H0 - gap * (Math.max(L.length, Rn.length) - 1)) / tot;
+  const col = o.color || ((n) => C[L.indexOf(n) % 8]);
+  const pos = (ns, key) => { let y = 4; return Object.fromEntries(ns.map((n) => { const h = sumBy(key, n) * k, r = [n, { y, h, oy: y }]; y += h + gap; return r; })); };
+  const PL = pos(L, 'a'), PR = pos(Rn, 'b'), H = Math.max(...Object.values(PL).map((p) => p.y + p.h), ...Object.values(PR).map((p) => p.y + p.h)) + 6;
+  const x0 = labW + nw, x1 = W - labW - nw;
+  const { box, svg } = svgBox(W, H);
+  links.slice().sort((p, q) => L.indexOf(p.a) - L.indexOf(q.a) || Rn.indexOf(p.b) - Rn.indexOf(q.b)).forEach((l) => {
+    const t = l.v * k, ya = PL[l.a].oy + t / 2, yb = PR[l.b].oy + t / 2; PL[l.a].oy += t; PR[l.b].oy += t;
+    const pth = svg.append('path').attr('d', d3.linkHorizontal()({ source: [x0, ya], target: [x1, yb] })).attr('fill', 'none').attr('stroke', col(l.a)).attr('stroke-width', Math.max(1.5, t)).attr('stroke-opacity', 0.45).style('cursor', l.onclick ? 'pointer' : null).on('click', (ev) => l.onclick && l.onclick(ev));
+    onTip(pth, () => [...(l.tip || [`${l.a} → ${l.b}`]), `${l.v} player${l.v === 1 ? '' : 's'}`, ...(l.onclick ? [CLICK] : [])]); });
+  const node = (P, x, anchor, tx, key) => Object.entries(P).forEach(([n, p]) => { svg.append('rect').attr('x', x).attr('y', p.y).attr('width', nw).attr('height', Math.max(2, p.h)).attr('rx', 2).attr('fill', key === 'a' ? col(n) : css('--axis'));
+    svg.append('text').attr('x', tx).attr('y', p.y + p.h / 2 + 4).attr('text-anchor', anchor).style('fill', css('--fg')).text(`${n.length > 24 ? n.slice(0, 23) + '…' : n} (${sumBy(key, n)})`); });
+  node(PL, labW, 'end', labW - 6, 'a'); node(PR, x1, 'start', x1 + nw + 6, 'b');
+  return box;
+}
 /** medal grid: rows [{label, go, cells:{year:{place, tip, n}}}], years */
 function medalGrid(rows, years, o = {}) {
   const labW = o.labW || 190, W = Math.max(o.W || 760, labW + years.length * 34), cw = (W - labW - (o.sumW || 0)) / Math.max(1, years.length), rh = 26, H = 20 + rh * rows.length;
@@ -1155,7 +1177,23 @@ ROUTES.moves = async () => {
       onclick: (ev) => dr(ev, (D) => { const L = D.mv.filter((m) => m.frm === c.team || m.to === c.team).sort((a, b) => b.y - a.y);
         const R = L.map((m) => { const w = D.who(m.p), inn = m.to === c.team; return { cells: [pcell(w), m.y, inn ? 'Arrived' : 'Left', inn ? m.frm : m.to, DIRW[m.dir], sgn(m.dl), nowOf(w)], sv: [w.n, m.y, inn ? 'Arrived' : 'Left', null, null, m.dl] }; });
         return { title: `${c.team}: arrivals and departures`, sum: [['Arrived', c.inn], ['Left', c.out], ['Net', sgn(c.net)]], extra: [h('div', { class: 'controls' }, tbtn(c.team))], head: ['Player', 'Into season', 'Arrived / left', 'Other team', 'Direction of the move', 'Level change', 'Latest team'], num: [1, 5], rows: R }; }) })), { W: 520, fmt: sgn }))));
-  out.push(card('Most common routes', 'Club-to-club moves that happened most often. Click a row for the players.', table(['From', 'To', 'Players', 'Who'], M.routes.map((r) => ({ onclick: (ev) => dr(ev, (D) => ({ title: `${r.frm} → ${r.to}`, head: MVHEAD, num: [1, 4, 5, 6, 7], rows: mvRows(D, D.mv.filter((m) => m.frm === r.frm && m.to === r.to)) })), cells: [r.frm, r.to, r.n, r.names] })), { num: [2], max: '28rem' })));
+  out.push(card('Most common routes', 'Club-to-club moves that happened most often (left: club they left, right: club they joined). Click a band for the players.', flow2(M.routes.slice(0, 20).map((r) => ({ a: r.frm, b: r.to + ' ', v: r.n, tip: [`${r.frm} → ${r.to}`, r.names], onclick: (ev) => dr(ev, (D) => ({ title: `${r.frm} → ${r.to}`, head: MVHEAD, num: [1, 4, 5, 6, 7], rows: mvRows(D, D.mv.filter((m) => m.frm === r.frm && m.to === r.to)) })) })), { W: 1000, labW: 200 })));
+  if (M.div_flow && M.div_flow.length) {
+    const DIVS = ['Open', 'Mixed', 'Women', 'Masters'], DC = { Open: C[0], Mixed: C[2], Women: C[4], Masters: C[5] };
+    const yrs = [...new Set(M.div_flow.map((d) => d.y))].sort(), dsel = h('select', null, h('option', { value: '' }, 'All seasons'), ...yrs.slice().reverse().map((y) => h('option', { value: y }, 'Into ' + y)));
+    const chg = h('label', { class: 'note' }, h('input', { type: 'checkbox' }), ' include players who stayed in the same division'), dbox = h('div');
+    const draw = () => { const F = M.div_flow.filter((d) => (!dsel.value || d.y === +dsel.value) && (chg.firstChild.checked || d.a !== d.b));
+      const agg = d3.rollups(F, (v) => v.flatMap((d) => d.ps.map((p) => [...p, d.y])), (d) => d.a, (d) => d.b).flatMap(([a, m]) => m.map(([b, ps]) => ({ a, b, v: ps.length, tip: [`${a} → ${b}`], onclick: (ev) => showDrill(anchorOf(ev), { title: `${a} → ${b}${dsel.value ? ' into ' + dsel.value : ''}`, head: ['Player', 'Into season'], num: [1], rows: ps.map(([k, n, y]) => ({ cells: [playerLink(k, n), y], sv: [n, y] })) }) })));
+      dbox.replaceChildren(agg.length ? flow2(agg.map((l) => ({ ...l, b: l.b + ' ' })), { W: 1000, labW: 150, order: DIVS.concat(DIVS.map((d) => d + ' ')), color: (n) => DC[n.trim()] || C[7] }) : h('p', { class: 'note' }, 'No moves for that choice.')); };
+    dsel.onchange = draw; chg.firstChild.onchange = draw; draw();
+    out.push(card('Moves between divisions', 'Each player’s main division one season (left) and the next season they played (right), from 2022 rosters and the older history rosters. Click a band for the players.', h('div', { class: 'controls' }, dsel, chg), dbox));
+  }
+  if (M.multi && M.multi.length) {
+    const top = M.multi.slice(0, 16);
+    out.push(card('Playing for more than one club in a season', 'Club pairs where the same player was on both rosters in the same season (training-player entries left out). Click a bar for the players.',
+      h('div', { class: 'grid2' }, hbars(top.map((d) => ({ label: `${d.a} + ${d.b}`, v: d.n, color: C[5], tip: [`${d.a} + ${d.b}`, d.ps.slice(0, 8).map((p) => p[1] + ' ' + p[2]).join(', ')], onclick: (ev) => showDrill(anchorOf(ev), { title: `${d.a} + ${d.b} in the same season`, head: ['Player', 'Season'], num: [1], rows: d.ps.map(([k, n, y]) => ({ cells: [playerLink(k, n), y], sv: [n, y] })) }) })), { W: 560, labW: 300 }),
+        h('div', null, h('h3', null, 'Players on two or more clubs, by season'), barChart(Object.entries(M.multi_by_year).map(([y, n]) => ({ x: +y, n })), [{ key: 'n', name: 'Players', color: C[5] }], { W: 440, H: 220 })))));
+  }
   out.push(card('Biggest steps up', 'Moves with the largest jump in team level. Click for the profile.', table(['Player', 'From', 'To', 'Into season', 'Level change'], M.biggest_up.map((r) => ({ go: r.k ? '#/p/' + enc(r.k) : null, cells: [r.n, r.frm, r.to, r.year, sgn(r.delta)] })), { num: [3, 4] })));
   // ---- leaving the scene ----
   const L = M.leavers;
