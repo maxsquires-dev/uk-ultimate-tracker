@@ -158,3 +158,8 @@ body.gated > header, body.gated > main, body.gated > footer, body.gated > .back 
 .pathfind { min-width: 220px; font: inherit; padding: 6px 10px; border: 1px solid var(--axis); border-radius: 8px; background: var(--panel); color: var(--fg); }
 .pathinfo:empty { display: none; }
 .pathinfo { margin: 4px 0 8px; font-size: 1rem; }
+
+/* score explanations */
+.hasinfo { cursor: help; }
+.ii { color: var(--muted); font-size: .8em; font-weight: 400; }
+.tip { max-width: 380px; }
