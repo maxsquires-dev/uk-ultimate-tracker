@@ -14,7 +14,7 @@ permissions:
 
 concurrency:
   group: pages
-  cancel-in-progress: true
+  cancel-in-progress: false   # queue deploys instead of cancelling: a cancelled run can leave its Pages deployment blocking the next one
 
 jobs:
   deploy:
@@ -45,3 +45,5 @@ jobs:
           path: .
       - id: deployment
         uses: actions/deploy-pages@v4
+        with:
+          timeout: 1200000   # 20 minutes (default 10): Pages can be slow to finish
