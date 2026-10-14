@@ -622,8 +622,10 @@ ROUTES.t = async (id) => {
   // who played when
   const cell = (c, ev) => c === 'team' ? { color: C[0], op: ev <= 1 ? 0.55 : 1 } : c === 'squad' ? { color: C[0], op: 0.25 } : c === 'training' ? { color: C[2], op: 0.8 } : c && c.startsWith('other:') ? { color: C[7], op: 0.35 } : null;
   const G = (t.grid || []).slice().sort((a, b) => a.first - b.first || b.seasons - a.seasons || a.n.localeCompare(b.n));
-  out.push(card('Who played when', `${G.length} players. Solid = core roster (lighter if one event), pale = played but not at roster-locked events, green = training player, grey = with another club that season. Click a name for their profile.`,
-    h('div', { class: 'tbox', style: 'max-height:40rem' }, presenceGrid(G.map((r) => ({ label: r.n, go: '#/p/' + enc(r.k), cells: Object.fromEntries(Object.entries(r.cells).map(([y, c]) => { const v = cell(c, (r.ev || {})[y] || 0); return [y, v && { ...v, tip: [r.n + ' · ' + y, c.startsWith('other:') ? 'With ' + c.slice(6) : c === 'team' ? ((r.ev || {})[y] || 0) + ' events (core roster)' : c === 'squad' ? 'Played, not at locked events' : 'Training player'] }]; }).filter(([, v]) => v)) })), [2022, 2023, 2024, 2025, 2026]))));
+  // names on a squad list with no full name: shown here only, no profile
+  const UN = d3.rollups(t.unnamed || [], (v) => v.map((u) => u.y), (u) => u.n).map(([n, ys]) => ({ label: n + ' (name unknown)', go: null, cells: Object.fromEntries(ys.map((y) => [y, { color: C[7], op: 0.6, tip: [n + ' · ' + y, 'On the squad list by nickname or first name only; no profile until the full name is known'] }])) }));
+  out.push(card('Who played when', `${G.length} players${UN.length ? ` (plus ${UN.length} listed by nickname only, at the bottom)` : ''}. Solid = core roster (lighter if one event), pale = played but not at roster-locked events, green = training player, grey = with another club that season. Click a name for their profile.`,
+    h('div', { class: 'tbox', style: 'max-height:40rem' }, presenceGrid(G.map((r) => ({ label: r.n, go: '#/p/' + enc(r.k), cells: Object.fromEntries(Object.entries(r.cells).map(([y, c]) => { const v = cell(c, (r.ev || {})[y] || 0); return [y, v && { ...v, tip: [r.n + ' · ' + y, c.startsWith('other:') ? 'With ' + c.slice(6) : c === 'team' ? ((r.ev || {})[y] || 0) + ' events (core roster)' : c === 'squad' ? 'Played, not at locked events' : 'Training player'] }]; }).filter(([, v]) => v)) })).concat(UN), [2022, 2023, 2024, 2025, 2026]))));
   return out;
 };
 
