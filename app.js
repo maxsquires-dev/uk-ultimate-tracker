@@ -508,6 +508,60 @@ function honours(results, o = {}) {
   return medalGrid(rows, years, { sumW: 170, sumHead: ['Titles', 'Podiums', 'Seasons'], labW: 180 });
 }
 
+// ---------- squad flow: a team's seasons as columns, each bar stacked by intake year, bands carrying each intake on ----------
+// rows: [{k, n, ys:[seasons on the roster], ev:{year: events}}]; players missing a season and coming back run underneath; leavers end in grey-to-black blocks
+function squadFlow(rows, seasons, o = {}) {
+  const I = o.index; const pInfo = new Map((I ? I.players : []).map((p) => [p.k, p]));
+  const PAL = ['#2b56a8', '#e07b24', '#2a9d6a', '#8e5bb5', '#c2417a', '#1c9aa8', '#b8860b'];
+  const intakes = [...new Set(rows.map((r) => r.ys[0]))].sort(); const ICOL = Object.fromEntries(intakes.map((y, i) => [y, PAL[i % PAL.length]]));
+  const ilab = (y) => y === seasons[0] ? `${y} roster` : `${y} intake`;
+  const last = seasons[seasons.length - 1];
+  const grp = (f) => { const m = new Map(); rows.forEach((r) => f(r).forEach((key) => { if (!m.has(key.id)) m.set(key.id, Object.assign(key, { ps: [] })); m.get(key.id).ps.push(r); })); return [...m.values()]; };
+  const links = grp((r) => r.ys.slice(1).map((b, j) => ({ id: r.ys[0] + '|' + r.ys[j] + '|' + b, e: r.ys[0], a: r.ys[j], b, gap: b - r.ys[j] > 1 })));
+  const stops = grp((r) => { const l = r.ys[r.ys.length - 1]; return l === last ? [] : [{ id: r.ys[0] + '|' + l, e: r.ys[0], s: l }]; });
+  const tot = Object.fromEntries(seasons.map((s) => [s, rows.filter((r) => r.ys.includes(s)).length]));
+  const W = 1000, nw = 16, colH = 260, k = colH / (d3.max(Object.values(tot)) || 1), top = 40, SW = 18;
+  const X = (i) => 50 + i * ((W - 150 - nw) / Math.max(1, seasons.length - 1));
+  const node = Object.fromEntries(seasons.map((s, i) => [s, { x: X(i), y: top + (colH - tot[s] * k) / 2 }]));
+  links.forEach((l) => { l.t = l.ps.length * k; }); stops.forEach((t) => { t.t = t.ps.length * k; });
+  const segs = [];
+  seasons.forEach((s) => { let y = node[s].y;
+    intakes.forEach((e) => { const ps = rows.filter((r) => r.ys[0] === e && r.ys.includes(s)); if (!ps.length) return;
+      segs.push({ s, e, ps, x: node[s].x, y, h: ps.length * k });
+      let yi = y; links.filter((l) => l.b === s && l.e === e).sort((p, q) => p.gap - q.gap || q.a - p.a).forEach((l) => { l.y1 = yi; yi += l.t; });
+      let yo = y; links.filter((l) => l.a === s && l.e === e).sort((p, q) => p.gap - q.gap || p.b - q.b).forEach((l) => { l.y0 = yo; yo += l.t; });
+      stops.filter((t) => t.s === s && t.e === e).forEach((t) => { t.y = yo; yo += t.t; });
+      y += ps.length * k; }); });
+  const curve = d3.line().curve(d3.curveBumpX);
+  let lane = top + colH + 24;
+  links.filter((l) => l.gap).sort((p, q) => (q.b - q.a) - (p.b - p.a) || p.a - q.a).forEach((l) => { l.lane = lane + l.t / 2; lane += Math.max(1.5, l.t) + 3; });
+  links.forEach((l) => { const xa = node[l.a].x + nw, xb = node[l.b].x, ya = l.y0 + l.t / 2, yb = l.y1 + l.t / 2;
+    l.d = l.gap ? curve([[xa, ya], [xa + 34, l.lane], [xb - 34, l.lane], [xb, yb]]) : curve([[xa, ya], [xb, yb]]); });
+  const { box, svg } = svgBox(W, lane + 14);
+  const gid = 'sfgrad' + Math.random().toString(36).slice(2, 7);
+  const gr = svg.append('defs').append('linearGradient').attr('id', gid); gr.append('stop').attr('offset', 0).attr('stop-color', '#9aa0a6'); gr.append('stop').attr('offset', 1).attr('stop-color', '#111');
+  seasons.forEach((s) => { svg.append('text').attr('x', node[s].x + nw / 2).attr('y', 16).attr('text-anchor', 'middle').style('font-weight', 600).style('fill', css('--fg')).text(s);
+    svg.append('text').attr('x', node[s].x + nw / 2).attr('y', 30).attr('text-anchor', 'middle').style('fill', css('--muted')).style('font-size', '11px').text(tot[s] + ' players'); });
+  if (links.some((l) => l.gap)) svg.append('text').attr('x', 4).attr('y', top + colH + 18).style('fill', css('--muted')).style('font-size', '11px').text('Missed a season, came back ⤵');
+  const nm = (rs) => rs.map((r) => r.n);
+  const drill = (ev, title, note, rs) => showDrill(anchorOf(ev), { title, note, sum: [['Players', rs.length]], head: ['Player', 'Seasons here', 'Joined', 'Events per season', 'Latest club'], num: [],
+    rows: rs.slice().sort((a, b) => b.ys.length - a.ys.length || a.n.localeCompare(b.n)).map((r) => { const e = pInfo.get(r.k) || {};
+      return { cells: [playerLink(r.k, r.n), r.ys.join(', '), r.ys[0] === seasons[0] ? `${seasons[0]} or earlier` : r.ys[0], r.ys.map((y) => `${y}: ${(r.ev || {})[y] ?? '—'}`).join(' · '), e.y ? `${e.t || '—'} (${e.y})` : '—'], sv: [r.n, r.ys.length, r.ys[0]] }; }) });
+  const gT = svg.append('g'), gL = svg.append('g'), gN = svg.append('g'), gX = svg.append('g');
+  const st = gT.selectAll('rect').data(stops).join('rect').attr('x', (t) => node[t.s].x + nw).attr('y', (t) => t.y).attr('width', SW).attr('height', (t) => Math.max(1, t.t)).attr('fill', `url(#${gid})`).style('cursor', 'pointer')
+    .on('click', (ev, t) => drill(ev, `Left after ${t.s} (${ilab(t.e)})`, `Players whose last season on this roster was ${t.s}.`, t.ps));
+  onTip(st, (t) => [`${t.ps.length} left after ${t.s}`, ilab(t.e), ...(t.ps.length <= 6 ? nm(t.ps) : []), CLICK]);
+  seasons.forEach((s) => { const ts = stops.filter((t) => t.s === s); if (!ts.length) return; const n = d3.sum(ts, (t) => t.ps.length), y0 = d3.min(ts, (t) => t.y), y1 = d3.max(ts, (t) => t.y + t.t);
+    gX.append('text').attr('x', node[s].x + nw + SW + 5).attr('y', (y0 + y1) / 2 + 4).style('fill', css('--fg')).style('font-size', '11px').style('font-weight', 600).style('paint-order', 'stroke').style('stroke', css('--panel')).style('stroke-width', '4px').style('stroke-linejoin', 'round').text(`${n} left`); });
+  const fl = gL.selectAll('path').data(links).join('path').attr('d', (l) => l.d).attr('fill', 'none').attr('stroke', (l) => ICOL[l.e]).attr('stroke-width', (l) => Math.max(1.5, l.t)).attr('stroke-opacity', 0.5).style('cursor', 'pointer')
+    .on('click', (ev, l) => drill(ev, `${l.a} → ${l.b} (${ilab(l.e)})`, l.gap ? `Missed ${d3.range(l.a + 1, l.b).join(', ')} and came back in ${l.b}.` : `On the roster in ${l.a} and back in ${l.b}.`, l.ps));
+  onTip(fl, (l) => [`${l.a} → ${l.b}${l.gap ? ' (missed a season)' : ''}`, `${l.ps.length} from the ${ilab(l.e)}`, ...(l.ps.length <= 6 ? nm(l.ps) : []), CLICK]);
+  const sg = gN.selectAll('rect').data(segs).join('rect').attr('x', (g) => g.x).attr('y', (g) => g.y).attr('width', nw).attr('height', (g) => Math.max(1, g.h)).attr('fill', (g) => ICOL[g.e]).attr('stroke', css('--panel')).attr('stroke-width', 0.6).style('cursor', 'pointer')
+    .on('click', (ev, g) => drill(ev, `${g.s} roster: ${ilab(g.e)}`, g.e === g.s && g.s !== seasons[0] ? `New to the roster in ${g.s}.` : `Players from the ${ilab(g.e)} still here in ${g.s}.`, g.ps));
+  onTip(sg, (g) => [`${g.s}: ${g.ps.length} from the ${ilab(g.e)}`, g.e === g.s && g.s !== seasons[0] ? 'new this season' : '', CLICK].filter(Boolean));
+  box.append(legend(intakes.map((y) => [y === seasons[0] ? `${y} roster (incl. earlier)` : `Joined ${y}`, ICOL[y]]).concat([['Left the roster', '#444']])));
+  return box;
+}
 // EUCS ranking as a reference: the European Ultimate Federation's own game-by-game rating (ranking.ultimatefederation.eu). Not used in our scores.
 function eucsCard(L) {
   return card('EUCS ranking (reference)', 'The EUF’s own rating of every team in the European Ultimate Club Season, from all its EUCS games. Shown for reference only; it is not used in any of our scores, which stay UK-focused. The latest season can be a mid-season ranking.',
@@ -544,12 +598,13 @@ ROUTES.t = async (id) => {
   const TR = await getJSON('trends.json');
   const lg = TR.retention.years.map((y, i) => ({ x: y, y: TR.retention.all[i] }));
   const stays = core.map((r) => r.ys.length);
-  out.push(card('Retention and how long players stay', 'Left: share of last season’s core roster that came back, against the whole league (dashed). Middle: each core roster split by how many seasons in a row each player has been on it. Right: each intake and the share still here later. 2022 includes players who joined before 2022.',
+  out.push(card('Retention and how long players stay', 'Left: share of last season’s core roster that came back, against the whole league (dashed). Right: each core roster split by how many seasons in a row each player has been on it.',
     tiles([['Average stay', stays.length ? f1(d3.mean(stays)) + ' seasons' : '—', 'core seasons per player, 2022–26'], ['Long-stayers', core.length ? pct(core.filter((r) => r.ys.length >= 3).length / core.length) : '—', '3+ core seasons'], ['Same core in ' + (seen[seen.length - 1] || ''), ten.length ? pct((ten[ten.length - 1].c + ten[ten.length - 1].d + ten[ten.length - 1].e) / Math.max(1, d3.sum(Object.values(ten[ten.length - 1]).slice(1)))) : '—', 'of the roster in their 3rd+ season in a row']]),
-    h('div', { class: 'grid3' },
-      lineChart([{ name: t.team, color: C[0], w: 2.5, pts: ret.map((s) => ({ x: s.year, y: s.retention })) }, { name: 'All teams', color: C[7], dash: '4 3', pts: lg }], { yDomain: [0, 1], yFmt: pct, xs: [2023, 2024, 2025, 2026], W: 360 }),
-      barChart(ten, [['a', '1st season'], ['b', '2nd'], ['c', '3rd'], ['d', '4th'], ['e', '5th']].map(([k, n], i) => ({ key: k, name: n, color: `color-mix(in srgb, ${C[0]} ${[30, 50, 70, 85, 100][i]}%, transparent)` })), { W: 360 }),
-      lineChart(coh, { yDomain: [0, 1], yFmt: pct, xs: seen, W: 360 }))));
+    h('div', { class: 'grid2' },
+      lineChart([{ name: t.team, color: C[0], w: 2.5, pts: ret.map((s) => ({ x: s.year, y: s.retention })) }, { name: 'All teams', color: C[7], dash: '4 3', pts: lg }], { yDomain: [0, 1], yFmt: pct, xs: [2023, 2024, 2025, 2026], W: 520 }),
+      barChart(ten, [['a', '1st season'], ['b', '2nd'], ['c', '3rd'], ['d', '4th'], ['e', '5th']].map(([k, n], i) => ({ key: k, name: n, color: `color-mix(in srgb, ${C[0]} ${[30, 50, 70, 85, 100][i]}%, transparent)` })), { W: 520 }))));
+  if (seen.length >= 2) out.push(card('Squad flow', `Each season’s core roster, split by the year players joined (${seen[0]} includes anyone who joined earlier). Bands carry each intake into the next season, players who missed a season and came back run underneath, and the grey-to-black blocks are players who left. Click any part for the players.`,
+    squadFlow(core.map((r) => ({ ...r, ev: ((t.grid || []).find((g) => g.k === r.k) || {}).ev })), seen, { index: await index() })));
   // where from / where to
   const fy = S.filter((s) => (s.joined_names || []).length || (s.left_names || []).length);
   if (fy.length) {
