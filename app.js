@@ -536,7 +536,7 @@ ROUTES.tree = async (k) => {
 };
 
 // ---------- teams ----------
-const KORDER = ['WUCC', 'EUCF', 'Elite Invite', 'E2CF', 'UKU Nationals', 'Masters (worlds)', 'Masters (EMUCC)', 'UKU Masters', 'Spring Tour', 'Summer Tour', 'UKU Nationals Div 2', 'UKU Regionals / Qualifier', 'UKU Tour', 'Invite', 'Beach club', 'Indoor club'];
+const KORDER = ['WUCC', 'EUCF', 'Elite Invite', 'E2CF', 'UKU Nationals', 'Masters (worlds)', 'Masters (EMUCC)', 'UKU Masters', 'Spring Tour', 'Summer Tour', 'Windmill', "Tom's Tourney", 'Vienna Spring Break', 'Bad Skid', 'UKU Nationals Div 2', 'UKU Regionals / Qualifier', 'UKU Tour', 'Invite', 'Beach club', 'Indoor club'];
 const MAJOR = new Set(['WUCC', 'EUCF', 'Elite Invite', 'UKU Nationals', 'Masters (worlds)']);
 ROUTES.teams = async () => {
   const I = await index();
@@ -979,7 +979,7 @@ ROUTES.e = async (arg) => {
   const divs = [...new Set(E.results.map((r) => String(r.division)))].sort();
   const st = { d: divs.includes('Open') ? 'Open' : divs[0], y: yr || '' }; const box = h('div'), medBox = h('div');
   const draw = () => {
-    const R = E.results.filter((r) => String(r.division) === st.d);
+    const RA = E.results.filter((r) => String(r.division) === st.d), R = RA.filter((r) => !r.ov);
     const best = d3.rollups(R, (v) => v.slice().sort((a, b) => (a.place || 999) - (b.place || 999))[0], (r) => r.team, (r) => r.year);
     const yrs = [...new Set(R.map((r) => r.year))].sort((a, b) => a - b);
     ys.replaceChildren(h('option', { value: '' }, 'All years'), ...yrs.slice().reverse().map((y) => h('option', { value: y, selected: String(y) === st.y || null }, y)));
@@ -989,10 +989,10 @@ ROUTES.e = async (arg) => {
       box.replaceChildren(lineChart(teams.map((d, i) => ({ name: d.t, color: C[i % 8], pts: d.pts })), { xs: yrs, W: 1000, H: 320, labels: true, yScale: d3.scaleLog, yDomain: [mx, 1], yAxis: d3.axisLeft(d3.scaleLog([mx, 1], [294, 12])).tickValues([1, 2, 3, 5, 10, 20, 40].filter((v) => v <= mx)).tickFormat(ord) }),
         h('p', { class: 'note' }, 'Higher = better. Medal colours mark podiums. Click a point for that year’s standings. Showing the ' + teams.length + ' UK teams with the most finishes here.'));
     } else {
-      const rows = R.filter((r) => String(r.year) === st.y).sort((a, b) => (a.place || 999) - (b.place || 999));
+      const rows = RA.filter((r) => String(r.year) === st.y).sort((a, b) => String(a.event).localeCompare(String(b.event)) || (a.place || 999) - (b.place || 999));
       const multi = new Set(rows.map((r) => r.event)).size > 1;
       box.replaceChildren(table([...(multi ? ['Event'] : []), 'Place', 'Team', 'Players', 'Roster quality', 'GB players', 'Back from last year', 'Top players'],
-        rows.map((r) => ({ go: tid.get(r.team + '|' + r.division) ? '#/t/' + enc(tid.get(r.team + '|' + r.division)) : null, cells: [...(multi ? [r.event] : []), ord(r.place) + (r.field ? ' / ' + r.field : ''), r.team, r.players ?? '—', f0(r.quality), r.gb_players ?? '—', pct(r.returning), r.top || ''] })), { max: '40rem' }));
+        rows.map((r) => ({ go: tid.get(r.team + '|' + r.division) ? '#/t/' + enc(tid.get(r.team + '|' + r.division)) : null, cls: r.ov ? 'muted' : null, cells: [...(multi ? [r.event] : []), ord(r.place) + (r.field ? ' / ' + r.field : ''), r.ov ? h('span', { class: 'muted' }, r.team) : h('b', null, r.team), r.players ?? '—', f0(r.quality), r.gb_players ?? '—', pct(r.returning), r.top || ''] })), { max: '40rem' }));
     }
     const bt = best.map(([t, v]) => { const ps = v.map(([, r]) => r.place).filter(Boolean); return { t, g: ps.filter((p) => p === 1).length, pod: ps.filter((p) => p <= 3).length, n: v.length, yrs: v.filter(([, r]) => r.place === 1).map(([y]) => y).sort().join(', ') }; }).filter((d) => d.pod).sort((a, b) => b.g - a.g || b.pod - a.pod);
     medBox.replaceChildren(bt.length ? table(['Team', 'Titles', 'Podiums', 'Seasons with a result', 'Title years'], bt.map((d) => ({ go: tid.get(d.t + '|' + st.d) ? '#/t/' + enc(tid.get(d.t + '|' + st.d)) : null, cells: [d.t, d.g, d.pod, d.n, d.yrs] })), { num: [1, 2, 3] }) : h('p', { class: 'note' }, 'No UK podiums recorded.'));
@@ -1000,7 +1000,7 @@ ROUTES.e = async (arg) => {
   const ys = h('select', { onchange: (e) => { st.y = e.target.value; draw(); } });
   const dv = h('select', { onchange: (e) => { st.d = e.target.value; draw(); } }, divs.map((d) => h('option', { value: d, selected: d === st.d || null }, d)));
   draw();
-  return [h('h1', null, E.kind), h('p', { class: 'sub' }, 'UK teams only. Years before 2022 come from ultimate-reference.com.'), card(null, null, h('div', { class: 'controls' }, dv, ys), box), card('Titles and podiums', 'UK teams with a top-three finish here.', medBox)];
+  return [h('h1', null, E.kind), h('p', { class: 'sub' }, 'Charts show UK teams. A single year shows the full standings where we have them (EUCS schedule site for 2023+ EUCS events; UK teams in bold). Years before 2022 come from ultimate-reference.com and UKU results.'), card(null, null, h('div', { class: 'controls' }, dv, ys), box), card('Titles and podiums', 'UK teams with a top-three finish here.', medBox)];
 };
 
 // ---------- drill-down: the players behind any bar, point, cell or row ----------
