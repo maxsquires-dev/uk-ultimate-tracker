@@ -1,0 +1,47 @@
+name: Publish site
+
+# Runs on every push of the built site. Adds the password screen (from the SITE_PASSWORD secret,
+# set in this repo's Settings > Secrets and variables > Actions) and deploys to GitHub Pages.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Password screen
+        env:
+          SITE_PASSWORD: ${{ secrets.SITE_PASSWORD }}
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, os, secrets
+          pw = os.environ.get('SITE_PASSWORD', '')
+          if pw:
+              salt = secrets.token_hex(8)
+              json.dump({'salt': salt, 'hash': hashlib.sha256((salt + pw).encode()).hexdigest()}, open('gate.json', 'w'))
+              print('password screen on')
+          else:
+              print('no SITE_PASSWORD secret: site is open to anyone with the link')
+          PY
+          rm -rf .github README.md
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+      - id: deployment
+        uses: actions/deploy-pages@v4

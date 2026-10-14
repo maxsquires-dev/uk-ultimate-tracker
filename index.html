@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UK Ultimate Tracker</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Source+Sans+3:wght@400;600&display=swap">
+<link rel="stylesheet" href="style.css?v=202610141249">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+</head>
+<body>
+<header class="top">
+  <a href="#/" class="brand">UK Ultimate Tracker</a>
+  <nav id="nav">
+    <a href="#/players">Players</a>
+    <a href="#/teams">Teams</a>
+    <a href="#/gb">GB squads</a>
+    <a href="#/events">Events</a>
+    <a href="#/trends">Trends</a>
+    <a href="#/moves">Moves</a>
+    <a href="#/connections">Connections</a>
+  </nav>
+  <div class="search"><input id="q" type="search" placeholder="Search a player or team" autocomplete="off" aria-label="Search"><div id="qres" class="qres" hidden></div></div>
+</header>
+<main id="view" aria-live="polite"></main>
+<footer class="foot">
+  <span id="built"></span> · <a href="#/checks">Data checks</a> · <a href="#/method">How it works</a>
+</footer>
+<div id="tip" class="tip" hidden></div>
+<script src="app.js?v=202610141249"></script>
+</body>
+</html>
