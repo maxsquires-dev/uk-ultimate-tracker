@@ -326,9 +326,9 @@ ROUTES.p = async (k) => {
   // career grid
   const rowsMap = new Map();
   const add = (team, year, kind, tipLine, go) => { const key = team; if (!rowsMap.has(key)) rowsMap.set(key, { label: team, cells: {}, kind, go, first: year }); const r = rowsMap.get(key); r.first = Math.min(r.first, year); (r.cells[year] = r.cells[year] || { color: CTX_COL(kind), tips: [] }).tips.push(tipLine); };
-  const ourTeams = new Set(p.apps.map((a) => a.team));
+  const ourTeams = new Set([...p.apps.map((a) => a.team), ...(await index()).teams.map((t) => t.n)]);
   const histName = (t) => { const s = t.replace(/^(London|Birmingham|Bristol|Glasgow|Durham|Royal Leamington Spa|South London|Epsom|Edinburgh|Reading|Cambridge|Oxford|Manchester|Leeds|Sheffield|Brighton|Southampton|Nottingham) /, ''); const b = s.replace(/ Ultimate$/, ''); if (ourTeams.has(t)) return t; if (ourTeams.has(s)) return s; if (b && ourTeams.has(b)) return b; return t; };
-  p.history.filter((x) => !/^GB/.test(x.division)).forEach((x) => add(histName(x.team), x.year, 'Club', (x.events || '') + (x.goals !== '' && x.goals != null ? ` · ${x.goals}G ${x.assists}A` : '')));
+  p.history.filter((x) => !/^GB/.test(x.division)).forEach((x) => add((() => { const n = histName(x.team); if (!/master/i.test(x.age || '')) return n; const b = x.team.replace(/^(London|Birmingham|Bristol|Glasgow|Durham|Royal Leamington Spa|South London|Epsom|Edinburgh|Reading|Cambridge|Oxford|Manchester|Leeds|Sheffield|Brighton|Southampton|Nottingham) /, ''); return [n, b, b.replace(/ Ultimate$/, '')].map((c) => c + ' Masters').find((c) => ourTeams.has(c)) || n; })(), x.year, 'Club', (x.events || '') + (x.goals !== '' && x.goals != null ? ` · ${x.goals}G ${x.assists}A` : '')));
   p.apps.forEach((a) => add(a.team, a.year, a.team_type || '', `${a.event}${a.place ? ' · ' + ord(a.place) : ''}${a.games ? ` · ${a.games} games, ${a.goals ?? 0}G ${a.assists ?? 0}A` : ''}${/inferred/.test(a.team_type) ? ' (assumed from squad)' : ''}`));
   p.gb.forEach((g) => { const r = rowsMap.get(g.team); if (!(r && r.cells[g.year])) add(g.team, g.year, 'GB', `${g.team} ${g.year}${g.place ? ' · ' + ord(g.place) : ''}`, '#/g/' + enc(g.line)); else if (!r.go) r.go = '#/g/' + enc(g.line); });   // every GB squad-season, even when the squad already has a row
   const years = [...new Set([...rowsMap.values()].flatMap((r) => Object.keys(r.cells).map(Number)))].sort((a, b) => a - b);
@@ -550,7 +550,8 @@ function squadFlow(rows, seasons, o = {}) {
   const ilab = (y) => y === seasons[0] ? `${y} roster` : `${y} intake`;
   const last = seasons[seasons.length - 1];
   const grp = (f) => { const m = new Map(); rows.forEach((r) => f(r).forEach((key) => { if (!m.has(key.id)) m.set(key.id, Object.assign(key, { ps: [] })); m.get(key.id).ps.push(r); })); return [...m.values()]; };
-  const links = grp((r) => r.ys.slice(1).map((b, j) => ({ id: r.ys[0] + '|' + r.ys[j] + '|' + b, e: r.ys[0], a: r.ys[j], b, gap: b - r.ys[j] > 1 })));
+  const SI = Object.fromEntries(seasons.map((y, i) => [y, i]));   // gaps are by column, so 2016 → 2019 with nothing between isn't a gap
+  const links = grp((r) => r.ys.slice(1).map((b, j) => ({ id: r.ys[0] + '|' + r.ys[j] + '|' + b, e: r.ys[0], a: r.ys[j], b, gap: SI[b] - SI[r.ys[j]] > 1 })));
   const stops = grp((r) => { const l = r.ys[r.ys.length - 1]; return l === last ? [] : [{ id: r.ys[0] + '|' + l, e: r.ys[0], s: l }]; });
   const tot = Object.fromEntries(seasons.map((s) => [s, rows.filter((r) => r.ys.includes(s)).length]));
   const W = 1000, nw = 16, colH = 260, k = colH / (d3.max(Object.values(tot)) || 1), top = 40, SW = 18;
@@ -566,16 +567,16 @@ function squadFlow(rows, seasons, o = {}) {
       stops.filter((t) => t.s === s && t.e === e).forEach((t) => { t.y = yo; yo += t.t; });
       y += ps.length * k; }); });
   const curve = d3.line().curve(d3.curveBumpX);
-  let lane = top + colH + 24;
-  links.filter((l) => l.gap).sort((p, q) => (q.b - q.a) - (p.b - p.a) || p.a - q.a).forEach((l) => { l.lane = lane + l.t / 2; lane += Math.max(1.5, l.t) + 3; });
+  const lane = top + colH + 24;
+  // players who skip a season: a short stub out of the season they left and a short stub into the season they came back, not a long loop
   links.forEach((l) => { const xa = node[l.a].x + nw, xb = node[l.b].x, ya = l.y0 + l.t / 2, yb = l.y1 + l.t / 2;
-    l.d = l.gap ? curve([[xa, ya], [xa + 34, l.lane], [xb - 34, l.lane], [xb, yb]]) : curve([[xa, ya], [xb, yb]]); });
+    l.d = l.gap ? curve([[xa, ya], [xa + 26, ya + 22]]) + curve([[xb - 26, yb + 22], [xb, yb]]) : curve([[xa, ya], [xb, yb]]); });
   const { box, svg } = svgBox(W, lane + 14);
   const gid = 'sfgrad' + Math.random().toString(36).slice(2, 7);
   const gr = svg.append('defs').append('linearGradient').attr('id', gid); gr.append('stop').attr('offset', 0).attr('stop-color', '#9aa0a6'); gr.append('stop').attr('offset', 1).attr('stop-color', '#111');
   seasons.forEach((s) => { svg.append('text').attr('x', node[s].x + nw / 2).attr('y', 16).attr('text-anchor', 'middle').style('font-weight', 600).style('fill', css('--fg')).text(s);
     svg.append('text').attr('x', node[s].x + nw / 2).attr('y', 30).attr('text-anchor', 'middle').style('fill', css('--muted')).style('font-size', '11px').text(tot[s] + ' players'); });
-  if (links.some((l) => l.gap)) svg.append('text').attr('x', 4).attr('y', top + colH + 18).style('fill', css('--muted')).style('font-size', '11px').text('Missed a season, came back ⤵');
+  if (links.some((l) => l.gap)) svg.append('text').attr('x', 4).attr('y', top + colH + 18).style('fill', css('--muted')).style('font-size', '11px').text('Short dashed stubs: players who missed a season and came back (out where they left, in where they returned)');
   const nm = (rs) => rs.map((r) => r.n);
   const drill = (ev, title, note, rs) => showDrill(anchorOf(ev), { title, note, sum: [['Players', rs.length]], head: ['Player', 'Seasons here', 'Joined', 'Events per season', 'Latest club'], num: [],
     rows: rs.slice().sort((a, b) => b.ys.length - a.ys.length || a.n.localeCompare(b.n)).map((r) => { const e = pInfo.get(r.k) || {};
@@ -586,8 +587,8 @@ function squadFlow(rows, seasons, o = {}) {
   onTip(st, (t) => [`${t.ps.length} left after ${t.s}`, ilab(t.e), ...(t.ps.length <= 6 ? nm(t.ps) : []), CLICK]);
   seasons.forEach((s) => { const ts = stops.filter((t) => t.s === s); if (!ts.length) return; const n = d3.sum(ts, (t) => t.ps.length), y0 = d3.min(ts, (t) => t.y), y1 = d3.max(ts, (t) => t.y + t.t);
     gX.append('text').attr('x', node[s].x + nw + SW + 5).attr('y', (y0 + y1) / 2 + 4).style('fill', css('--fg')).style('font-size', '11px').style('font-weight', 600).style('paint-order', 'stroke').style('stroke', css('--panel')).style('stroke-width', '4px').style('stroke-linejoin', 'round').text(`${n} left`); });
-  const fl = gL.selectAll('path').data(links).join('path').attr('d', (l) => l.d).attr('fill', 'none').attr('stroke', (l) => ICOL[l.e]).attr('stroke-width', (l) => Math.max(1.5, l.t)).attr('stroke-opacity', 0.5).style('cursor', 'pointer')
-    .on('click', (ev, l) => drill(ev, `${l.a} → ${l.b} (${ilab(l.e)})`, l.gap ? `Missed ${d3.range(l.a + 1, l.b).join(', ')} and came back in ${l.b}.` : `On the roster in ${l.a} and back in ${l.b}.`, l.ps));
+  const fl = gL.selectAll('path').data(links).join('path').attr('d', (l) => l.d).attr('fill', 'none').attr('stroke', (l) => ICOL[l.e]).attr('stroke-width', (l) => Math.max(1.5, l.t)).attr('stroke-opacity', (l) => l.gap ? 0.75 : 0.5).attr('stroke-dasharray', (l) => l.gap ? '3 2' : null).attr('stroke-linecap', 'butt').style('cursor', 'pointer')
+    .on('click', (ev, l) => drill(ev, `${l.a} → ${l.b} (${ilab(l.e)})`, l.gap ? `On the roster in ${l.a}, not in ${seasons.slice(SI[l.a] + 1, SI[l.b]).join(', ')}, back in ${l.b}.` : `On the roster in ${l.a} and back in ${l.b}.`, l.ps));
   onTip(fl, (l) => [`${l.a} → ${l.b}${l.gap ? ' (missed a season)' : ''}`, `${l.ps.length} from the ${ilab(l.e)}`, ...(l.ps.length <= 6 ? nm(l.ps) : []), CLICK]);
   const sg = gN.selectAll('rect').data(segs).join('rect').attr('x', (g) => g.x).attr('y', (g) => g.y).attr('width', nw).attr('height', (g) => Math.max(1, g.h)).attr('fill', (g) => ICOL[g.e]).attr('stroke', css('--panel')).attr('stroke-width', 0.6).style('cursor', 'pointer')
     .on('click', (ev, g) => drill(ev, `${g.s} roster: ${ilab(g.e)}`, g.e === g.s && g.s !== seasons[0] ? `New to the roster in ${g.s}.` : `Players from the ${ilab(g.e)} still here in ${g.s}.`, g.ps));
@@ -596,9 +597,16 @@ function squadFlow(rows, seasons, o = {}) {
   return box;
 }
 // EUCS ranking as a reference: the European Ultimate Federation's own game-by-game rating (ranking.ultimatefederation.eu). Not used in our scores.
-function eucsCard(L) {
-  return card('EUCS ranking (reference)', 'The EUF’s own rating of every team in the European Ultimate Club Season, from all its EUCS games. Shown for reference only; it is not used in any of our scores, which stay UK-focused. The latest season can be a mid-season ranking.',
-    table(['Season', 'EUCS rank', 'Rating', 'Record (W-L)', 'Tournaments', 'Ranking date'], L.map((r) => ({ cells: [r.season, r.rank ? `${ord(r.rank)} of ${r.of}` : '—', r.rating != null ? d3.format('.0f')(r.rating) : '—', r.record, r.tournaments, r.date] })), { num: [2] }),
+function eucsCard(L, all, team, division) {
+  const C = COL(), last = L[L.length - 1], best = L.filter((r) => r.rank).sort((a, b) => a.rank - b.rank)[0];
+  const others = d3.groups((all || []).filter((r) => r.division === division && r.team !== team && r.rank), (r) => r.team);
+  const mx = Math.max(10, d3.max([...L, ...(all || []).filter((r) => r.division === division)], (r) => r.rank || 0) || 10);
+  const series = others.map(([t, v]) => ({ name: t, color: css('--axis'), w: 1, pts: v.sort((a, b) => a.season - b.season).map((r) => ({ x: r.season, y: r.rank, r: 2.5, tip: [t + ' · ' + r.season, `${ord(r.rank)} of ${r.of} in Europe`] })) }))
+    .concat([{ name: team, color: C[0], w: 3, pts: L.filter((r) => r.rank).map((r) => ({ x: r.season, y: r.rank, r: 6, tip: [team + ' · ' + r.season, `${ord(r.rank)} of ${r.of} in Europe`, `rating ${d3.format('.0f')(r.rating)} · record ${r.record} · ${r.tournaments} tournaments`] })) }]);
+  return card('EUCS ranking (reference)', `Where ${team} sits in the EUF’s European ranking each season (higher = better), against the other UK ${division} teams in grey. For reference only: not used in our scores. The latest season can be a mid-season ranking.`,
+    tiles([['Latest', last && last.rank ? ord(last.rank) : '—', last ? `of ${last.of} in Europe, ${last.season}` : ''], ['Best', best ? ord(best.rank) : '—', best ? String(best.season) : ''], ['Rating', last && last.rating != null ? d3.format('.0f')(last.rating) : '—', last ? 'record ' + last.record : ''],
+      ['Among UK teams', last && last.rank ? ord(1 + (all || []).filter((r) => r.division === division && r.season === last.season && r.rank && r.rank < last.rank && r.team !== team).length) : '—', last ? `UK ${division}, ${last.season}` : '']]),
+    lineChart(series, { W: 1000, H: 240, yDomain: [mx, 1], yFmt: (v) => Number.isInteger(v) ? ord(v) : '', xs: [...new Set((all || []).concat(L).map((r) => r.season))].sort(), legend: false }),
     h('p', { class: 'note' }, h('a', { href: 'https://ranking.ultimatefederation.eu/', target: '_blank', rel: 'noopener' }, 'Open the EUCS ranking ↗')));
 }
 const teamDrill = (ev, title, L, t) => showDrill(anchorOf(ev), { title, head: ['Player', 'Seasons here', 'First', 'Last'], num: [1, 2, 3], rows: L.map((r) => ({ cells: [playerLink(r.k, r.n), r.ys.length, r.ys[0], r.ys[r.ys.length - 1]], sv: [r.n, r.ys.length, r.ys[0], r.ys[r.ys.length - 1]] })) });
@@ -614,7 +622,7 @@ ROUTES.t = async (id) => {
     tiles([['Seasons with rosters', t.history_only ? '—' : new Set((t.grid || []).flatMap((r) => Object.keys(r.cells))).size], ['Players used', t.players_used ?? '—', 'everyone who played at least once'], ['Average retention', ret.length ? pct(d3.mean(ret, (s) => s.retention)) : '—', 'of last season’s core roster back'],
       ['Major titles', majors.length, majors.length ? d3.rollups(majors, (v) => v.length, (r) => r.kind).map(([k, n]) => n + '× ' + k).join(', ') : 'Nationals, EUCF, WUCC, Elite Invite, masters worlds'], ['Podiums', res.filter((r) => r.place && r.place <= 3).length, 'all competitions in the data']]),
     card('Honours by competition', 'Every finish we have, by competition and season. Gold, silver and bronze mark medals; a number is the place. Hover for the events; click to open the competition.', honours(res, { compGo: (k) => slug(k) }))];
-  if (t.eucs && t.eucs.length) out.push(eucsCard(t.eucs));
+  if (t.eucs && t.eucs.length) out.push(eucsCard(t.eucs, (await getJSON('trends.json')).eucs_uk, t.team, t.division));
   if (t.history_only && !(t.grid || []).length) return out;
   if (t.history_only) { out.push(whoPlayed(t, C)); return out; }
   // results
@@ -642,13 +650,13 @@ ROUTES.t = async (id) => {
   if (seen.length >= 2) {
     const IX = await index(), flowBox = h('div'), noteEl = h('p', { class: 'note' });
     const fromSel = h('select', { onchange: () => drawFlow() }, seen.slice(0, -1).map((y) => h('option', { value: y }, 'From ' + y)));
-    fromSel.value = seen[Math.max(0, seen.length - 8)];
+    let st0 = seen.length - 1; while (st0 > 0 && seen[st0] - seen[st0 - 1] <= 2 && seen.length - st0 < 8) st0--; fromSel.value = seen[st0];
     const drawFlow = () => { const yrs = seen.filter((y) => y >= +fromSel.value);
       const rows = core.map((r) => ({ ...r, ys: r.ys.filter((y) => yrs.includes(y)), ev: ((t.grid || []).find((g) => g.k === r.k) || {}).ev })).filter((r) => r.ys.length);
-      noteEl.textContent = `Each season’s squad, split by the year players joined (${yrs[0]} includes anyone who joined earlier). Bands carry each intake into the next season, players who missed a season and came back run underneath, and the grey-to-black blocks are players who left. Click any part for the players.`;
+      noteEl.textContent = `Each season’s squad, split by the year players joined (${yrs[0]} includes anyone who joined earlier). Bands carry each intake into the next season, short dashed stubs are players who missed a season and came back, and the grey-to-black blocks are players who left. Click any part for the players.`;
       flowBox.replaceChildren(squadFlow(rows, yrs, { index: IX })); };
     drawFlow();
-    out.push(card('Squad flow', null, noteEl, seen.length > 8 ? h('div', { class: 'controls' }, fromSel, h('span', { class: 'note' }, ' showing the last 8 seasons by default; pick an earlier start to see more')) : null, flowBox));
+    out.push(card('Squad flow', null, noteEl, h('div', { class: 'controls' }, fromSel, h('span', { class: 'note' }, ' starts at the most recent run of seasons without big gaps; older seasons come from incomplete rosters')), flowBox));
   }
   // where from / where to
   const fy = S.filter((s) => (s.joined_names || []).length || (s.left_names || []).length);
@@ -865,7 +873,7 @@ ROUTES.gc = async (id) => {
         card(`Euros only (${eo.length})`, 'Not in the Worlds squad.', list(eo, (p) => p.ce)),
         card(`Both (${both.length})`, 'The core of the cycle.', list(both, (p) => p.ce || p.cw)),
         card(`Worlds only (${wo.length})`, 'Added after the Euros.', list(wo, (p) => p.cw))) : card('Squad', null, list(c.players, (p) => p.ce || p.cw)),
-      card('Clubs they came from', 'Club at the time of the event (from rosters that year).', c.clubs.length ? hbars(c.clubs.slice(0, 14).map(([t, n]) => ({ label: t, v: n, color: C[0] })), { W: 1000, fmt: (v) => v + (v === 1 ? ' player' : ' players') }) : h('p', { class: 'note' }, 'No club data for this cycle.'))); };
+      card('Clubs they came from', 'Club at the time of the event (from rosters that year). Click a slice for the players.', c.clubs.length ? donut(c.clubs.map(([t, n]) => ({ label: t, v: n, onclick: (ev) => { const L = c.players.filter((p) => (p.ce || p.cw) === t); showDrill(anchorOf(ev), { title: `${c.label}: from ${t}`, head: ['Player', 'Route into the squad'], num: [], rows: L.map((p) => ({ cells: [plink(p), routeWord(p)], sv: [p.n] })) }); } })), { W: 620, centreLab: 'players', max: 10 }) : h('p', { class: 'note' }, 'No club data for this cycle.'))); };
   sel.onchange = show; show();
   out.push(h('h2', { style: 'margin-top:18px' }, 'One cycle in detail'), h('div', { class: 'controls' }, h('span', { class: 'muted' }, 'Cycle:'), sel), box);
   return out;
@@ -1114,10 +1122,10 @@ ROUTES.trends = async () => {
   if (T.eucs_uk && T.eucs_uk.length) {
     const E = T.eucs_uk, seasons = [...new Set(E.map((r) => r.season))].sort();
     const tidN = new Map(I.teams.map((t) => [t.n, t.id]));
-    out.push(card('UK teams in the EUCS ranking (reference)', 'The EUF’s game-by-game rating of every team in the European Ultimate Club Season. Shown for context only: our scores use UK and international finishes, not this rating. The latest season can be a mid-season ranking.',
-      h('div', { class: 'grid3' }, ['Mixed', 'Open', 'Women'].map((d) => { const L = E.filter((r) => r.division === d); const teams = [...new Set(L.map((r) => r.team))];
-        const best = (t) => d3.min(L.filter((r) => r.team === t), (r) => r.rank ?? 99); teams.sort((a, b) => best(a) - best(b));
-        return h('div', null, h('h3', null, d), table(['Team', ...seasons.map(String)], teams.map((t) => ({ cells: [t, ...seasons.map((y) => { const r = L.find((x) => x.team === t && x.season === y); return r && r.rank ? `${ord(r.rank)} of ${r.of}` : '—'; })] })), { num: seasons.map((_, i) => i + 1) })); })),
+    out.push(card('UK teams in the EUCS ranking (reference)', 'Each UK team’s European rank by season (higher = better), top 8 per division. Click a point for the team. Shown for context only: our scores don’t use this rating. The latest season can be a mid-season ranking.',
+      h('div', { class: 'grid3' }, ['Mixed', 'Open', 'Women'].map((d) => { const L = E.filter((r) => r.division === d && r.rank); const teams = d3.groups(L, (r) => r.team).sort((a, b) => d3.min(a[1], (r) => r.rank) - d3.min(b[1], (r) => r.rank)).slice(0, 8);
+        const mx = Math.max(10, d3.max(L, (r) => r.rank) || 10);
+        return h('div', null, h('h3', null, d), lineChart(teams.map(([t, v], i) => ({ name: t, color: C[i % 8], pts: v.sort((a, b) => a.season - b.season).map((r) => ({ x: r.season, y: r.rank, tip: [t + ' · ' + r.season, `${ord(r.rank)} of ${r.of} in Europe`, `rating ${d3.format('.0f')(r.rating)} · ${r.record}`], go: tidN.get(t) ? '#/t/' + enc(tidN.get(t)) : null })) })), { W: 360, H: 260, yDomain: [mx, 1], yFmt: (v) => Number.isInteger(v) ? ord(v) : '', xs: seasons, legend: true })); })),
       h('p', { class: 'note' }, h('a', { href: 'https://ranking.ultimatefederation.eu/', target: '_blank', rel: 'noopener' }, 'Open the EUCS ranking ↗'))));
   }
   out.push(h('p', { class: 'note' }, 'Movement between clubs has its own page: ', h('a', { href: '#/moves' }, 'Moves →')));
