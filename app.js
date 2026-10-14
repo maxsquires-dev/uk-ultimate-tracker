@@ -508,6 +508,12 @@ function honours(results, o = {}) {
   return medalGrid(rows, years, { sumW: 170, sumHead: ['Titles', 'Podiums', 'Seasons'], labW: 180 });
 }
 
+// EUCS ranking as a reference: the European Ultimate Federation's own game-by-game rating (ranking.ultimatefederation.eu). Not used in our scores.
+function eucsCard(L) {
+  return card('EUCS ranking (reference)', 'The EUF’s own rating of every team in the European Ultimate Club Season, from all its EUCS games. Shown for reference only; it is not used in any of our scores, which stay UK-focused. The latest season can be a mid-season ranking.',
+    table(['Season', 'EUCS rank', 'Rating', 'Record (W-L)', 'Tournaments', 'Ranking date'], L.map((r) => ({ cells: [r.season, r.rank ? `${ord(r.rank)} of ${r.of}` : '—', r.rating != null ? d3.format('.0f')(r.rating) : '—', r.record, r.tournaments, r.date] })), { num: [2] }),
+    h('p', { class: 'note' }, h('a', { href: 'https://ranking.ultimatefederation.eu/', target: '_blank', rel: 'noopener' }, 'Open the EUCS ranking ↗')));
+}
 ROUTES.t = async (id) => {
   const ix0 = (await index()).teams.find((x) => x.id === id); if (!ix0) throw new Error('Team not found');
   const t = (await getJSON('t/' + String(ix0.b).padStart(2, '0') + '.json'))[id]; const C = COL();
@@ -520,6 +526,7 @@ ROUTES.t = async (id) => {
     tiles([['Seasons with rosters', t.history_only ? '—' : t.n_seasons], ['Players used', t.players_used ?? '—', 'everyone who played at least once'], ['Average retention', ret.length ? pct(d3.mean(ret, (s) => s.retention)) : '—', 'of last season’s core roster back'],
       ['Major titles', majors.length, majors.length ? d3.rollups(majors, (v) => v.length, (r) => r.kind).map(([k, n]) => n + '× ' + k).join(', ') : 'Nationals, EUCF, WUCC, Elite Invite, masters worlds'], ['Podiums', res.filter((r) => r.place && r.place <= 3).length, 'all competitions in the data']]),
     card('Honours by competition', 'Every finish we have, by competition and season. Gold, silver and bronze mark medals; a number is the place. Hover for the events; click to open the competition.', honours(res, { compGo: (k) => slug(k) }))];
+  if (t.eucs && t.eucs.length) out.push(eucsCard(t.eucs));
   if (t.history_only) return out;
   // results
   const evPts = S.flatMap((s) => (s.events || []).map((e) => ({ x: s.year, y: e.pct, tip: [e.event, `${ord(e.place)}${e.field ? ' of ' + e.field : ''} · percentile ${f0(e.pct)}`], fill: MEDAL(e.place) || C[0], r: 4 })));
@@ -997,6 +1004,15 @@ ROUTES.trends = async () => {
   out.push(card('GB pathway: senior and U24 players who came through junior squads', ['Share of each squad who had played a GB U17 or U20 squad before. Rosters before about 2017 are incomplete, so early values are low partly for that reason. Click a point for the squad. ', h('a', { href: '#/pathway' }, 'Full pathway flow →')],
     lineChart(lines.map(([t, v], i) => ({ name: t.replace(/^GB /, ''), color: C[i % 8], pts: v.map((g) => ({ x: g.year, y: g.share, tip: [g.team + ' ' + g.year, `${g.junior} of ${g.players} had played U17/U20`], onclick: gbDrill(g) })) })), { W: 1000, H: 280, yDomain: [0, 1], yFmt: pct, labels: true }),
     finding(`Most recent: ${lines.map(([t, v]) => `${t.replace(/^GB /, '')} ${pct(v[v.length - 1].share)}`).slice(0, 6).join(', ')}. U24 squads draw much more on the junior programme than senior squads do.`, 'flat')));
+  if (T.eucs_uk && T.eucs_uk.length) {
+    const E = T.eucs_uk, seasons = [...new Set(E.map((r) => r.season))].sort();
+    const tidN = new Map(I.teams.map((t) => [t.n, t.id]));
+    out.push(card('UK teams in the EUCS ranking (reference)', 'The EUF’s game-by-game rating of every team in the European Ultimate Club Season. Shown for context only: our scores use UK and international finishes, not this rating. The latest season can be a mid-season ranking.',
+      h('div', { class: 'grid3' }, ['Mixed', 'Open', 'Women'].map((d) => { const L = E.filter((r) => r.division === d); const teams = [...new Set(L.map((r) => r.team))];
+        const best = (t) => d3.min(L.filter((r) => r.team === t), (r) => r.rank ?? 99); teams.sort((a, b) => best(a) - best(b));
+        return h('div', null, h('h3', null, d), table(['Team', ...seasons.map(String)], teams.map((t) => ({ cells: [t, ...seasons.map((y) => { const r = L.find((x) => x.team === t && x.season === y); return r && r.rank ? `${ord(r.rank)} of ${r.of}` : '—'; })] })), { num: seasons.map((_, i) => i + 1) })); })),
+      h('p', { class: 'note' }, h('a', { href: 'https://ranking.ultimatefederation.eu/', target: '_blank', rel: 'noopener' }, 'Open the EUCS ranking ↗'))));
+  }
   out.push(h('p', { class: 'note' }, 'Movement between clubs has its own page: ', h('a', { href: '#/moves' }, 'Moves →')));
   return out;
 };
