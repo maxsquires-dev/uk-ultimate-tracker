@@ -257,10 +257,10 @@ async function route() {
   untip();
   const [_, view = '', ...rest] = location.hash.replace(/^#/, '').split('/');
   const arg = rest.length ? decodeURIComponent(rest.join('/')) : null;
-  document.querySelectorAll('#nav a').forEach((a) => a.classList.toggle('on', a.getAttribute('href').split('/')[1] === ({ p: 'players', tree: 'players', t: 'teams', g: 'gb', gc: 'gb', pathway: 'gb', e: 'events' }[view] || view)));
+  document.querySelectorAll('#nav a').forEach((a) => a.classList.toggle('on', a.getAttribute('href').split('/')[1] === ({ p: 'players', tree: 'players', t: 'teams', g: 'gb', gc: 'gb', pathway: 'gb', programme: 'gb', e: 'events' }[view] || view)));
   const fn = ROUTES[view] || ROUTES[''];
   VIEW.replaceChildren(h('p', { class: 'loading' }, 'Loading…'));
-  try { const out = await fn(arg); VIEW.replaceChildren(...[out].flat()); } catch (e) { console.error(e); VIEW.replaceChildren(card('Something went wrong', String(e.message || e))); }
+  try { const out = await fn(arg); VIEW.replaceChildren(...[out].flat().filter(Boolean)); } catch (e) { console.error(e); VIEW.replaceChildren(card('Something went wrong', String(e.message || e))); }
   if (!arg || view !== (route.last || [])[0]) window.scrollTo(0, 0);
   route.last = [view, arg];
 }
@@ -301,6 +301,17 @@ index().then((I) => { $('#built').textContent = 'Data built ' + I.built + ' · '
 
 // ---------- shared: player profiles ----------
 async function profile(k) { const I = await index(); const e = I.players.find((p) => p.k === k); if (!e) return null; const b = await getJSON('p/' + String(e.b).padStart(2, '0') + '.json'); return b[k] || null; }
+// ---------- FMP / MMP (matching) filter ----------
+// m codes from the build: F = women's division seen (hard rule), M = open + mixed seen, Mo = open only, f/m = first-name guess, '' = unknown
+const MPL = { F: 'FMP', f: 'FMP (name guess)', M: 'MMP', Mo: 'MMP (open only)', m: 'MMP (name guess)', '': 'unknown' };
+const mpSide = (m) => m === 'F' || m === 'f' ? 'F' : m === 'M' || m === 'Mo' || m === 'm' ? 'M' : '';
+let MP = ''; try { MP = localStorage.getItem('mp') || ''; } catch (e) {}
+let MPMAP = null;
+const mpMap = async () => MPMAP || (MPMAP = new Map((await index()).players.map((p) => [p.k, p.m || ''])));
+const mpPass = (k) => !MP || mpSide(MPMAP ? MPMAP.get(k) || '' : '') === MP;
+const MPCTL = h('div', { class: 'mpctl', title: 'Show only female-matching or male-matching players across the site' }, [['', 'All'], ['F', 'FMP'], ['M', 'MMP']].map(([v, l]) => h('button', { class: 'chip' + (MP === v ? ' on' : ''), onclick: () => { MP = v; try { localStorage.setItem('mp', v); } catch (e) {} MPCTL.querySelectorAll('.chip').forEach((c, j) => c.classList.toggle('on', ['', 'F', 'M'][j] === v)); route(); } }, l)));
+document.querySelector('header.top').insertBefore(MPCTL, document.querySelector('header.top .search'));
+const mpNote = () => MP ? h('p', { class: 'note mpnote' }, `Showing ${MP === 'F' ? 'FMP' : 'MMP'} players only. `, h('a', { href: '#', onclick: (e) => { e.preventDefault(); MPCTL.querySelectorAll('.chip')[0].click(); } }, 'Show everyone')) : null;
 const CMP = (() => { let s = []; try { s = JSON.parse(localStorage.getItem('cmp') || '[]'); } catch (e) {} return { list: () => s, has: (k) => s.includes(k), toggle(k) { s = s.includes(k) ? s.filter((x) => x !== k) : [...s, k].slice(-5); try { localStorage.setItem('cmp', JSON.stringify(s)); } catch (e) {} }, clear() { s = []; try { localStorage.setItem('cmp', '[]'); } catch (e) {} } }; })();
 const CTX_COL = (tt) => /Overseas|Other national/i.test(tt) ? COL()[3] : /GB|national/i.test(tt) ? COL()[1] : /Training/i.test(tt) ? COL()[2] : /Masters/i.test(tt) ? COL()[6] : /Secondary|second/i.test(tt) ? COL()[5] : COL()[0];
 
@@ -320,17 +331,17 @@ ROUTES[''] = async () => {
 
 // ---------- players list + compare ----------
 ROUTES.players = async () => {
-  const I = await index();
+  const I = await index(); await mpMap();
   const wrap = h('div');
   const st = { q: '', d: '', t: '', s: 'q', hist: false };
   const teamsAll = [...new Set(I.players.filter((p) => !p.h).flatMap((p) => (p.t || '').split(' + ')))].filter(Boolean).sort();
   const list = h('div'), cmpBox = h('div');
   const draw = () => {
-    let L = I.players.filter((p) => (st.hist || !p.h) && (!st.q || p.n.toLowerCase().includes(st.q)) && (!st.d || p.d === st.d) && (!st.t || (p.t || '').split(' + ').includes(st.t)));
+    let L = I.players.filter((p) => mpPass(p.k) && (st.hist || !p.h) && (!st.q || p.n.toLowerCase().includes(st.q)) && (!st.d || p.d === st.d) && (!st.t || (p.t || '').split(' + ').includes(st.t)));
     L = L.slice().sort(st.s === 'q' ? (a, b) => (b.q ?? -1) - (a.q ?? -1) : st.s === 'qr' ? (a, b) => (b.qr ?? -1) - (a.qr ?? -1) : st.s === 'g' ? (a, b) => (b.g ?? -999) - (a.g ?? -999) : st.s === 'gb' ? (a, b) => b.gb - a.gb : (a, b) => a.n.localeCompare(b.n));
     list.replaceChildren(h('p', { class: 'note' }, `${L.length.toLocaleString()} players` + (L.length > 300 ? ' (first 300 shown)' : '')),
-      table(['', 'Player', 'Team (latest)', 'Division', 'Quality', 'Results quality', 'Change 25→26', 'GB squads', 'Latest season'], L.slice(0, 300).map((p) => ({ go: '#/p/' + enc(p.k), cells: [
-        h('input', { type: 'checkbox', title: 'Compare', checked: CMP.has(p.k) || null, onclick: (e) => { e.stopPropagation(); CMP.toggle(p.k); drawCmp(); } }), p.n + (p.h ? ' ·' : ''), p.t, p.d, f0(p.q), f0(p.qr), p.g == null ? '—' : sgn(p.g), p.gb || '—', p.y] })), { num: [4, 5, 6, 7, 8], max: '42rem' }));
+      table(['', 'Player', 'Team (latest)', 'Division', 'Matching', 'Quality', 'Results quality', 'Change 25→26', 'GB squads', 'Latest season'], L.slice(0, 300).map((p) => ({ go: '#/p/' + enc(p.k), cells: [
+        h('input', { type: 'checkbox', title: 'Compare', checked: CMP.has(p.k) || null, onclick: (e) => { e.stopPropagation(); CMP.toggle(p.k); drawCmp(); } }), p.n + (p.h ? ' ·' : ''), p.t, p.d, MPL[p.m || ''], f0(p.q), f0(p.qr), p.g == null ? '—' : sgn(p.g), p.gb || '—', p.y] })), { num: [5, 6, 7, 8, 9], max: '42rem' }));
   };
   const drawCmp = async () => {
     const ks = CMP.list();
@@ -353,18 +364,31 @@ ROUTES.players = async () => {
     h('select', { onchange: (e) => { st.s = e.target.value; draw(); } }, [['q', 'Sort: quality'], ['qr', 'Sort: results quality'], ['g', 'Sort: biggest risers'], ['gb', 'Sort: most GB squads'], ['n', 'Sort: name']].map(([v, l]) => h('option', { value: v }, l))),
     h('label', { class: 'note' }, h('input', { type: 'checkbox', onchange: (e) => { st.hist = e.target.checked; draw(); } }), ' include players only seen before 2022 (·)'));
   draw(); drawCmp();
-  wrap.append(h('h1', null, 'Players'), h('p', { class: 'sub' }, 'Every player in the data. Click a name for their full profile, or tick players to compare them.'), cmpBox, card(null, null, ctl, list));
+  const mpCard = (() => { const cur = I.players.filter((p) => !p.h && p.q != null), C = COL();
+    const side = (p) => mpSide(p.m || ''), G = [['F', 'FMP', C[1]], ['M', 'MMP', C[0]]];
+    const row = (lab, f) => ({ cells: [lab, ...G.map(([v]) => f(cur.filter((p) => side(p) === v)))] });
+    const rows = [row('Players (2022+ with a score)', (L) => L.length), row('Hard rule', (L) => L.filter((p) => ['F', 'M', 'Mo'].includes(p.m)).length), row('Name guess only', (L) => L.filter((p) => ['f', 'm'].includes(p.m)).length),
+      row('Average quality', (L) => f0(d3.mean(L, (p) => p.q))), row('Average results quality', (L) => f0(d3.mean(L, (p) => p.qr))), row('Quality 70+', (L) => L.filter((p) => p.q >= 70).length), row('Played GB', (L) => L.filter((p) => p.gb).length + ' (' + pct(L.length ? L.filter((p) => p.gb).length / L.length : 0) + ')'),
+      ...['Open', 'Women', 'Mixed'].map((d) => row('Latest division: ' + d, (L) => L.filter((p) => p.d === d).length))];
+    const unk = cur.filter((p) => !side(p)).length;
+    const ds = [[0, 20], [20, 40], [40, 60], [60, 80], [80, 101]].map(([a, b]) => ({ label: a + '–' + Math.min(100, b), F: cur.filter((p) => side(p) === 'F' && p.q >= a && p.q < b).length, M: cur.filter((p) => side(p) === 'M' && p.q >= a && p.q < b).length }));
+    return card('FMP vs MMP', `Female-matching vs male-matching players. Hard rule: any women's-division appearance = FMP; open and mixed = MMP; open only = MMP (open only). The rest are a first-name guess, marked as such. ${unk} players can't be placed. Use the FMP / MMP switch in the header to filter every page.`,
+      h('div', { class: 'grid2' }, table(['', 'FMP', 'MMP'], rows, { num: [1, 2] }), h('div', null, h('p', { class: 'note' }, 'Players by quality band'), barChart(ds.map((d) => ({ x: d.label, F: d.F, M: d.M })), [{ key: 'F', name: 'FMP', color: C[1] }, { key: 'M', name: 'MMP', color: C[0] }], { W: 460, H: 220 })))); })();
+  wrap.append(h('h1', null, 'Players'), h('p', { class: 'sub' }, 'Every player in the data. Click a name for their full profile, or tick players to compare them.'), ...[mpNote()].filter(Boolean), cmpBox, card(null, null, ctl, list), mpCard);
   return wrap;
 };
 
 // ---------- player profile ----------
 ROUTES.p = async (k) => {
-  const p = await profile(k); if (!p) return card('Player not found', k);
+  const p = await profile(k); if (!p) { const I = await index(), w = k.replace(/^h:/, '').toLowerCase().split(/\s+/).filter(Boolean);
+    const m = I.players.filter((x) => w.every((t) => (x.n + ' ' + x.k).toLowerCase().includes(t))).slice(0, 12);
+    return card('Player not found', m.length ? null : k, m.length ? h('div', null, h('p', null, 'No profile under “' + k + '”. Did you mean:'), h('ul', null, m.map((x) => h('li', null, h('a', { href: '#/p/' + encodeURIComponent(x.k) }, x.n), x.t ? ' · ' + x.t : '')))) : null); }
   const C = COL(), i = p.info || {};
   const out = [h('h1', null, p.n), h('p', { class: 'sub' }, [i.latest_teams, i.division, i.latest_season ? 'latest season ' + i.latest_season : null, p.history.length && !p.seasons.length ? 'seen before 2022 only' : null].filter(Boolean).join(' · '),
     ' ', h('button', { onclick: (e) => { CMP.toggle(p.k); e.target.textContent = CMP.has(p.k) ? 'In comparison ✓' : 'Add to comparison'; } }, CMP.has(p.k) ? 'In comparison ✓' : 'Add to comparison'), ' ', h('a', { href: '#/players' }, 'Compare →'))];
   const lastS = p.seasons[p.seasons.length - 1] || {};
   const brk = (s, rs) => [`This player (${s.year || ''}): team ${f0(rs ? s.team_rating_level : s.team_level)}${s.team_credit != null && !rs ? ' → team credit ' + f0(s.team_credit) : ''} · GB selection ${s.selection ?? 0}${s.selection_level ? ' (' + s.selection_level + ')' : ''} · production ${s.production == null ? 'no stats' : f0(s.production)} · role ${s.role == null ? '—' : f0(s.role)}`];
+  out.push(h('p', { class: 'sub' }, 'Matching: ' + MPL[p.m || ''] + (p.m === 'F' ? ' — played in a women\'s division' : p.m === 'M' ? ' — played open and mixed' : p.m === 'Mo' ? ' — open division only so far' : p.m === 'f' || p.m === 'm' ? ' — guessed from the first name only; tell Max if wrong' : ' — no division evidence and no name match')));
   if (p.info) out.push(tiles([['Quality', f0(i.quality), i.profile, brk(lastS, false)], ['Results quality', f0(i.quality_r), lastS.team_rated ? 'team part from game results' : 'team not rated: same as Quality', brk(lastS, true)], ['Level (team side)', f0(i.level), 'where they’re trusted to play'], ['Impact (individual)', f0(i.impact), 'what they add there'],
     ['Change 25→26', i.growth == null ? '—' : sgn(i.growth), i.growth_drivers || ''], ['GB squads', p.gb.length, p.gb.length ? p.gb.map((g) => g.year).filter((v, j, a) => a.indexOf(v) === j).join(', ') : 'none in the data'], ['Seasons', p.seasons.length + (p.history.length ? ' + ' + new Set(p.history.map((x) => x.year)).size + ' earlier' : ''), 'with rosters']]));
   // trajectory
@@ -672,14 +696,15 @@ function ratingCard(t, TS) {
 const teamDrill = (ev, title, L, t) => showDrill(anchorOf(ev), { title, head: ['Player', 'Seasons here', 'First', 'Last'], num: [1, 2, 3], rows: L.map((r) => ({ cells: [playerLink(r.k, r.n), r.ys.length, r.ys[0], r.ys[r.ys.length - 1]], sv: [r.n, r.ys.length, r.ys[0], r.ys[r.ys.length - 1]] })) });
 ROUTES.t = async (id) => {
   const ix0 = (await index()).teams.find((x) => x.id === id); if (!ix0) throw new Error('Team not found');
-  const t = (await getJSON('t/' + String(ix0.b).padStart(2, '0') + '.json'))[id]; const C = COL();
+  const t0 = (await getJSON('t/' + String(ix0.b).padStart(2, '0') + '.json'))[id]; const C = COL(); await mpMap();
+  const t = MP ? { ...t0, grid: (t0.grid || []).filter((g) => mpPass(g.k)) } : t0;
   const S = (t.seasons || []).slice().sort((a, b) => a.year - b.year), res = t.results || [];
   const majors = res.filter((r) => r.place === 1 && MAJOR.has(r.kind));
   const ret = S.filter((s) => s.retention != null);
   const slug = (s) => String(s).toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
   const ix = (await index()).teams.find((x) => x.id === id) || { n: t.team };
-  const out = [h('div', { class: 'teamhead' }, badge(ix, 56), h('h1', null, t.team)), h('p', { class: 'sub' }, `${t.division} · ` + (t.history_only ? ((t.results || []).length ? `results ${t.first_year}–${t.last_year}` : `squad lists ${t.first_year}–${t.last_year}`) + ((t.grid || []).length ? ' (earlier seasons only)' : ' (no rosters in the data yet)') : `rosters ${t.first_year}–${t.last_year}, results from ${d3.min(res, (r) => r.year) ?? t.first_year}`)),
-    tiles([['Seasons with rosters', t.history_only ? '—' : new Set((t.grid || []).flatMap((r) => Object.keys(r.cells))).size], ['Players used', t.players_used ?? '—', 'everyone who played at least once'], ['Average retention', ret.length ? pct(d3.mean(ret, (s) => s.retention)) : '—', 'of last season’s core roster back'],
+  const out = [h('div', { class: 'teamhead' }, badge(ix, 56), h('h1', null, t.team)), mpNote(), h('p', { class: 'sub' }, `${t.division} · ` + (t.history_only ? ((t.results || []).length ? `results ${t.first_year}–${t.last_year}` : `squad lists ${t.first_year}–${t.last_year}`) + ((t.grid || []).length ? ' (earlier seasons only)' : ' (no rosters in the data yet)') : `rosters ${t.first_year}–${t.last_year}, results from ${d3.min(res, (r) => r.year) ?? t.first_year}`)),
+    tiles([['Seasons with rosters', t.history_only ? '—' : new Set((t.grid || []).flatMap((r) => Object.keys(r.cells))).size], ['Players used', MP ? (t.grid || []).length : t.players_used ?? '—', MP ? (MP === 'F' ? 'FMP' : 'MMP') + ' players on the rosters' : 'everyone who played at least once'], ['Average retention', ret.length ? pct(d3.mean(ret, (s) => s.retention)) : '—', 'of last season’s core roster back'],
       ['Major titles', majors.length, majors.length ? d3.rollups(majors, (v) => v.length, (r) => r.kind).map(([k, n]) => n + '× ' + k).join(', ') : 'Nationals, EUCF, WUCC, Elite Invite, masters worlds'], ['Podiums', res.filter((r) => r.place && r.place <= 3).length, 'all competitions in the data']]),
     card('Honours by competition', 'Every finish we have, by competition and season. Gold, silver and bronze mark medals; a number is the place. Hover for the events; click to open the competition.', honours(res, { compGo: (k) => slug(k) }))];
   if (t.rating && t.rating.some((r) => r.comparable)) out.push(ratingCard(t, (await getJSON('trends.json')).ratings_ts));
@@ -782,7 +807,7 @@ ROUTES.gb = async () => {
     h('div', { class: 'cycgrid' }, famOrder.filter((f) => cyc.some((c) => c.fam === f)).map((f) => h('div', { class: 'cycfam' }, h('h3', null, { Senior: 'Senior (EUC + WUGC/WUC)', 'World Games': 'World Games', U24: 'U24', U20: 'U20 (Euros + Worlds)', U17: 'U17', Masters: 'Masters (Euros + Worlds)', Beach: 'Beach (Euros + Worlds)', Indoor: 'Indoor' }[f]),
       cyc.filter((c) => c.fam === f).map((c) => h('a', { class: 'cycrow', href: '#/gc/' + enc(c.id) }, h('b', null, c.n.replace(/^GB (U\d+ |Beach |Indoor |World Games )?/, '')), h('span', { class: 'muted' }, c.cyc.slice(-3).map(([l, e, w]) => l + ' ' + (w != null || e != null ? [e != null ? fin(e) : null, w != null ? fin(w) : null].filter(Boolean).join('/') : '')).join(' · '))))))));
   return [h('h1', null, 'GB squads'), h('p', { class: 'sub' }, 'Every GB squad we have since 2010, with its finish. Click a squad line to follow it over time, or a circle to open that squad.'),
-    card('GB pathway', 'How players move from U17 to U20, U24, senior and masters squads, as a flow you can click into.', h('a', { class: 'btn primary', href: '#/pathway' }, 'Open the pathway →')), cycCard,
+    card('GB pathway and programme', 'How players move from U17 to U20, U24, senior and masters squads, and what becomes of them: who stays in the sport, where they play, whether starting young predicts quality.', h('div', { class: 'controls' }, h('a', { class: 'btn primary', href: '#/programme' }, 'Open the GB programme →'), h('a', { class: 'btn', href: '#/pathway' }, 'Pathway flow →'))), cycCard,
     card(null, null, h('div', { class: 'controls' }, h('select', { onchange: (e) => { st.lvl = e.target.value; draw(); } }, [['', 'All levels'], ['Senior', 'Senior (World Games, WUGC, EUC)'], ['U24', 'U24'], ['Junior', 'U20 and U17'], ['Beach', 'Beach'], ['Masters', 'Masters'], ['Indoor', 'Indoor']].map(([v, l]) => h('option', { value: v }, l)))), box),
     (() => { const grp = (n) => /Master/.test(n) ? 'Masters' : /U17/.test(n) ? 'U17' : /U20/.test(n) ? 'U20' : /U24/.test(n) ? 'U24' : /Beach|Indoor/.test(n) ? null : 'Senior';
       const gsel = h('select', null, ['Senior', 'U24', 'U20', 'U17', 'Masters'].map((g) => h('option', { value: g }, g))), gbox = h('div');
@@ -918,6 +943,89 @@ async function capsTable() {
   const I = await index(); const L = I.players.filter((p) => p.gb >= 3).sort((a, b) => b.gb - a.gb).slice(0, 60);
   return table(['Player', 'GB squads', 'Latest team'], L.map((p) => ({ go: '#/p/' + enc(p.k), cells: [p.n, p.gb, p.t] })), { num: [1], max: '26rem' });
 }
+// ---------- GB programme: journeys, retention, what youth GB predicts ----------
+ROUTES.programme = async () => {
+  const D = await getJSON('programme.json'); const I = await index(); const C = COL(); await mpMap();
+  const LV = ['U17', 'U20', 'U24', 'Senior'], LCOL = { U17: '#e07b24', U20: '#8e5bb5', U24: '#2a9d6a', Senior: '#2b56a8', Other: '#9aa3b2' };
+  const pInfo = new Map(I.players.map((p) => [p.k, p]));
+  const P0 = D.players.filter((p) => mpPass(p.k)).map((p) => {
+    const core = p.sq.filter((s) => LV.includes(s[0]));
+    const entry = core.length ? core.slice().sort((a, b) => a[1] - b[1] || LV.indexOf(a[0]) - LV.indexOf(b[0]))[0] : p.sq[0];
+    const yrs = new Set([...p.sq.map((s) => s[1]), ...p.cy.map((c) => c[0])]);
+    return { ...p, entry: LV.includes(entry[0]) ? entry[0] : 'Other', y0: entry[1], yrs, senior: p.sq.some((s) => s[0] === 'Senior'), seniorY: d3.min(p.sq.filter((s) => s[0] === 'Senior'), (s) => s[1]),
+      peak: d3.max(p.cy, (c) => c[3]), club: (pInfo.get(p.k)?.t || '').replace(/^(Great Britain|GB)$/, ''), still: p.last >= D.lasty - 1 };
+  });
+  const st = { era: '', lvl: '', div: '' };
+  const divOf = (p) => new Set(p.sq.map((s) => (s[2].match(/(Open|Women|Mixed)$/) || [])[1]).filter(Boolean));
+  const ctl = h('div', { class: 'controls' },
+    h('select', { onchange: (e) => { st.era = e.target.value; draw(); } }, [['', 'All entry years'], ['2010-2014', 'First GB squad 2010–14'], ['2015-2019', 'First GB squad 2015–19'], ['2020-2026', 'First GB squad 2020–26']].map(([v, l]) => h('option', { value: v }, l))),
+    h('select', { onchange: (e) => { st.lvl = e.target.value; draw(); } }, [['', 'All entry levels'], ['U17', 'Entered at U17'], ['U20', 'Entered at U20'], ['U24', 'Entered at U24'], ['Senior', 'Entered at senior'], ['Other', 'Beach / masters / indoor only']].map(([v, l]) => h('option', { value: v }, l))),
+    h('select', { onchange: (e) => { st.div = e.target.value; draw(); } }, [['', 'All GB divisions'], ['Open', 'Open'], ['Women', 'Women'], ['Mixed', 'Mixed']].map(([v, l]) => h('option', { value: v }, l))));
+  const box = h('div');
+  const HEAD = ['Player', 'Entry', 'First GB', 'GB squads', 'Reached senior', 'Peak quality (2022+)', 'Last seen', 'Latest club'];
+  const prow = (p) => ({ cells: [playerLink(p.k, p.n), p.entry, p.y0, p.sq.length, p.senior ? 'yes' + (p.seniorY ? ' (' + p.seniorY + ')' : '') : '', f0(p.peak), p.last, p.club || '—'], sv: [p.n, LV.indexOf(p.entry), p.y0, p.sq.length, p.senior ? 1 : 0, p.peak, p.last, p.club] });
+  const drill = (ev, title, note, L) => showDrill(anchorOf(ev), { title, note, sum: [['Players', L.length], ['Reached senior GB', L.filter((p) => p.senior).length], ['Seen in the last two seasons', L.filter((p) => p.still).length]], head: HEAD, num: [2, 3, 5, 6], rows: L.map(prow) });
+  const draw = () => {
+    const P = P0.filter((p) => (!st.era || (p.y0 >= +st.era.slice(0, 4) && p.y0 <= +st.era.slice(5))) && (!st.lvl || p.entry === st.lvl) && (!st.div || divOf(p).has(st.div)));
+    const youth = P.filter((p) => ['U17', 'U20', 'U24'].includes(p.entry)), jun = P.filter((p) => ['U17', 'U20'].includes(p.entry));
+    const mature = (p, n) => p.y0 + n <= D.lasty;   // cohort old enough to judge n years on
+    const conv = (L, n) => { const M = L.filter((p) => mature(p, n)); return M.length ? [M.filter((p) => p.senior).length / M.length, M.length] : [null, 0]; };
+    const c5 = conv(jun, 6), c24 = conv(youth.filter((p) => p.entry === 'U24'), 4);
+    const stillL = P.filter((p) => mature(p, 3));
+    const tiles1 = tiles([['GB players', P.length, 'in the squads we have, 2010–' + D.lasty], ['Came in through youth', youth.length, `${jun.length} at U17/U20, ${youth.length - jun.length} at U24`],
+      ['Junior → senior GB', pct(c5[0]), `of ${c5[1]} U17/U20 entrants whose first squad was 6+ years ago`, ['Share of U17/U20 entrants who later made a senior squad (EUC, WUGC, World Games). Only cohorts old enough to have had the chance (first squad at least 6 years ago) are counted.']],
+      ['U24 → senior GB', pct(c24[0]), `of ${c24[1]} U24 entrants, first squad 4+ years ago`],
+      ['Still around', stillL.length ? pct(stillL.filter((p) => p.still).length / stillL.length) : '—', `seen playing in ${D.lasty - 1}–${D.lasty}, of ${stillL.length} with a first squad 3+ years ago`, ['"Seen" = on any club roster, kit list or GB squad in the data. Club rosters before about 2020 are thin, so older cohorts look like they left more than they did.']]]);
+    // 1. survival: share seen N years after first GB squad, by entry level
+    const N = d3.range(0, 11);
+    const surv = ['U17', 'U20', 'U24', 'Senior'].map((lv) => { const L = P.filter((p) => p.entry === lv);
+      return { name: lv, color: LCOL[lv], pts: N.map((n) => { const M = L.filter((p) => mature(p, n)); if (M.length < 8) return null; const v = M.filter((p) => p.yrs.has(p.y0 + n) || p.last >= p.y0 + n).length / M.length;
+        return { x: n, y: v, tip: [`${lv} entrants, ${n} year${n === 1 ? '' : 's'} after their first squad`, `${pct(v)} still seen (${M.length} players old enough to count)`], go: null }; }).filter(Boolean) }; }).filter((s) => s.pts.length > 1);
+    const survCard = card('Still in the game', 'Share of each entry group still seen playing (any club roster, kit list or GB squad) N years after their first GB squad — cumulative, so it only counts the last year they were seen or later. Groups need 8+ players old enough to count. Older cohorts are undercounted because club rosters before 2020 are thin.',
+      lineChart(surv, { W: 620, H: 280, yDomain: [0, 1], yFmt: d3.format('.0%'), xLabel: 'years after first GB squad' }),
+      h('p', { class: 'note' }, 'Hover a point for the number of players behind it.'));
+    // 2. what youth entrants are doing N years on
+    const doing = (p, y) => { if (y > D.lasty) return null; const sq = p.sq.filter((s) => s[1] === y); if (sq.some((s) => s[0] === 'Senior')) return 'GB senior'; if (sq.some((s) => ['U17', 'U20', 'U24'].includes(s[0]))) return 'GB youth'; if (sq.length) return 'GB beach / masters / indoor';
+      const cy = p.cy.filter((c) => c[0] === y); if (cy.length) { const d = cy.map((c) => c[4]).find(Boolean); return d ? 'Club: ' + d : 'Club'; } return p.last >= y ? 'Not seen that year' : 'Gone from the data'; };
+    const KEYS = ['GB senior', 'GB youth', 'GB beach / masters / indoor', 'Club: Open', 'Club: Women', 'Club: Mixed', 'Club', 'Not seen that year', 'Gone from the data'];
+    const KC = { 'GB senior': C[0], 'GB youth': C[1], 'GB beach / masters / indoor': C[6], 'Club: Open': C[2], 'Club: Women': C[3], 'Club: Mixed': C[4], Club: C[5], 'Not seen that year': '#cfd4dc', 'Gone from the data': '#eceff3' };
+    const yrsOn = d3.range(1, 9);
+    const dd = yrsOn.map((n) => { const M = youth.filter((p) => mature(p, n)); const o = { x: n + ' yr' + (n === 1 ? '' : 's'), n, _ps: {} }; M.forEach((p) => { const k = doing(p, p.y0 + n); if (!k) return; o[k] = (o[k] || 0) + 1 / M.length; (o._ps[k] = o._ps[k] || []).push(p); }); return o; }).filter((o) => d3.sum(KEYS, (k) => o[k] || 0) > 0);
+    const doingCard = card('What youth entrants are doing, year by year', 'For everyone whose first GB squad was U17, U20 or U24: what the data shows them doing 1–8 years later, as a share of the players old enough to count. "Not seen that year" = still appears later; "gone" = never seen again. Click a block for the players.',
+      barChart(dd, KEYS.map((k) => ({ key: k, name: k, color: KC[k] })), { W: 680, H: 280, yFmt: d3.format('.0%'), onClick: (d, k, ev) => drill(ev, `${k.name}, ${d.x} after first GB squad`, null, d._ps[k.key] || []) }),
+      null);
+    // 3. does starting young predict quality? (population comparison, 2022+ scored players)
+    const PG = ['U17', 'U20', 'U24', 'Senior/other GB only', 'No GB'], pop = D.pop;
+    const popRows = [['Players (2022+ with a score)', (g) => g.n], ['Average quality', (g) => f0(g.q)], ['Average results quality', (g) => f0(g.qr)], ['Quality 70+', (g) => `${g.q70} (${pct(g.q70 / g.n)})`], ['On a top-rated club (70+)', (g) => `${g.top} (${pct(g.top / g.n)})`], ['Made a senior GB squad', (g) => `${g.sen} (${pct(g.sen / g.n)})`]];
+    const popCard = card('Does starting young predict later quality?', 'Players scored in 2022+ grouped by how they first entered GB (their lowest youth level) against those who never played GB. A selection effect is built in: GB youth squads pick the strongest juniors, so this shows what the programme\'s players go on to do, not what the programme causes.',
+      h('div', { class: 'grid2' }, table(['', ...PG.map((g) => g.replace('Senior/other GB only', 'Senior / other GB only'))], popRows.map(([l, f]) => ({ cells: [l, ...PG.map((g) => pop[g] ? f(pop[g]) : '—')] })), { num: [1, 2, 3, 4, 5] }),
+        h('div', null, h('p', { class: 'note' }, 'Average quality by entry route'), barChart(PG.filter((g) => pop[g]).map((g) => ({ x: g.replace('Senior/other GB only', 'Senior/other'), q: pop[g].q })), [{ key: 'q', name: 'Average quality', color: C[0] }], { W: 460, H: 220 }))));
+    // 4. entry year cohorts: outcome grid
+    const cohorts = d3.groups(P.filter((p) => p.entry !== 'Other'), (p) => p.y0).sort((a, b) => a[0] - b[0]);
+    const OUT = ['Players', 'Reached senior GB', 'Played 3+ GB squads', 'Still seen ' + (D.lasty - 1) + '–' + D.lasty, 'Peak quality 70+'];
+    const cohortCard = card('Each entry-year cohort', 'Everyone whose first GB squad (U17–senior) was in that year, and what became of them. Click a cell for the players.',
+      heatGrid(cohorts.map(([y, L]) => ({ label: String(y), L })), OUT, (r, c) => { const L = c === 'Players' ? r.L : c === 'Reached senior GB' ? r.L.filter((p) => p.senior) : c === 'Played 3+ GB squads' ? r.L.filter((p) => p.sq.length >= 3) : c.startsWith('Still') ? r.L.filter((p) => p.still) : r.L.filter((p) => p.peak >= 70);
+        return { v: L.length, share: c === 'Players' ? 0.25 : L.length / (r.L.length || 1), tip: [`${r.label}: ${c}`, `${L.length}${c === 'Players' ? '' : ' of ' + r.L.length + ' (' + pct(L.length / (r.L.length || 1)) + ')'}`], onclick: (ev) => drill(ev, `${c}, first GB squad ${r.label}`, null, L) }; }, { labW: 60, cw: 130 }));
+    // 5. where youth alumni play
+    const clubSeasons = youth.flatMap((p) => p.cy.filter((c) => c[0] > p.y0).map((c) => ({ p, club: c[1] })));
+    const clubs = d3.rollups(clubSeasons, (v) => v, (d) => d.club).map(([label, v]) => ({ label, v: new Set(v.map((d) => d.p.k)).size, _ps: [...new Map(v.map((d) => [d.p.k, d.p])).values()] })).sort((a, b) => b.v - a.v);
+    const clubCard = card('Where youth entrants play afterwards', 'Clubs that U17/U20/U24 entrants have played for in any season after their first GB squad (players, not seasons). Click a slice for the players.',
+      clubs.length ? donut(clubs.map((c, i) => ({ ...c, color: C[i % 8], tip: [c.label, c.v + ' players'], onclick: (ev) => drill(ev, c.label + ': youth GB entrants who played there', null, c._ps) })), { W: 560, R: 86, max: 12, centreLab: 'players', otherClick: (ev, rest) => drill(ev, 'Other clubs', null, [...new Map(rest.flatMap((r) => r._ps).map((p) => [p.k, p])).values()]) }) : h('p', { class: 'note' }, 'Nobody.'));
+    // 6. entry level vs peak quality
+    const pk = ['U17', 'U20', 'U24', 'Senior'].map((lv) => { const L = P.filter((p) => p.entry === lv && p.peak != null); return { lv, n: L.length, q: d3.mean(L, (p) => p.peak), q70: L.filter((p) => p.peak >= 70).length, L }; }).filter((d) => d.n);
+    const peakCard = card('Entry level and peak quality', 'Highest season quality (2022+) reached by players who entered GB at each level. Players seen only before 2022 have no score and are left out. Click a bar for the players.',
+      barChart(pk.map((d) => ({ x: `${d.lv} (${d.n})`, q: d.q, _ps: d.L })), [{ key: 'q', name: 'Average peak quality', color: C[0] }], { W: 460, H: 220, onClick: (d, k, ev) => drill(ev, 'Peak quality: entered at ' + d.x, null, d._ps) }),
+      table(['Entry level', 'Players scored', 'Average peak quality', 'Peak 70+'], pk.map((d) => ({ cells: [d.lv, d.n, f0(d.q), `${d.q70} (${pct(d.q70 / d.n)})`] })), { num: [1, 2, 3] }));
+    // 7. full table
+    const tbl = card('Every GB player in the data', `${P.length} players. Click a heading to sort.`, sortTable(HEAD, P.map(prow), [2, 3, 5, 6]));
+    box.replaceChildren(tiles1, h('div', { class: 'grid2' }, survCard, doingCard), popCard, h('div', { class: 'grid2' }, cohortCard, peakCard), clubCard, tbl);
+  };
+  draw();
+  return [h('h1', null, 'GB programme'), h('p', { class: 'sub' }, 'What happens to the people who play for GB: who comes through the youth squads, who stays in the sport, where they play, and whether starting young says anything about how good they get. ', h('a', { href: '#/pathway' }, 'Pathway flow →'), ' · ', h('a', { href: '#/gb' }, 'Squads →')),
+    ...[mpNote()].filter(Boolean), h('p', { class: 'note' }, 'Caveats: GB rosters before 2017 are often incomplete on ultimate-reference, club rosters before 2020 are thin, and quality scores exist only from 2022. "Left the sport" can also mean "played somewhere we don\'t see".'),
+    card(null, null, ctl), box];
+};
+
 ROUTES.gc = async (id) => {
   const P = await getJSON('gc/' + enc(id) + '.json'); const C = COL(); const cs = P.cycles;
   const plink = (p) => h('a', { href: '#/p/' + enc(p.k) }, p.n);
@@ -968,8 +1076,8 @@ ROUTES.gc = async (id) => {
 };
 const gbDrill = (ev, title, L) => showDrill(anchorOf(ev), { title, head: ['Player', 'Club then', 'GB squad no.', 'GB squads in total'], num: [2, 3], rows: L.map((r) => ({ cells: [playerLink(r.known ? r.k : 'h:' + r.k, r.n), r.club || '—', ord(r.caps), r.total ?? '—'], sv: [r.n, r.club, r.caps, r.total] })) });
 ROUTES.g = async (arg) => {
-  const [id, yr] = arg.split('/'); const L = await getJSON('g/' + enc(id) + '.json'); const C = COL();
-  const E = L.editions.map((e) => ({ ...e, R: e.roster || [] }));
+  const [id, yr] = arg.split('/'); const L = await getJSON('g/' + enc(id) + '.json'); const C = COL(); await mpMap();
+  const E = L.editions.map((e) => ({ ...e, R: (e.roster || []).filter((r) => mpPass(r.known ? r.k : 'h:' + r.k)) }));
   const hist = new Map(); const all = await Promise.all((await index()).gb.filter((g) => g.lvl !== 'zz').map((g) => getJSON('g/' + enc(g.id) + '.json')));
   all.forEach((l) => l.editions.forEach((e) => (e.roster || []).forEach((r) => { if (!hist.has(r.k)) hist.set(r.k, []); hist.get(r.k).push({ y: e.year, t: e.team }); })));
   E.forEach((e, i) => { const prev = i ? new Set(E[i - 1].R.map((r) => r.k)) : null; e.back = prev ? e.R.filter((r) => prev.has(r.k)).length : null; e.ret = prev && e.R.length ? e.back / e.R.length : null;
@@ -982,6 +1090,9 @@ ROUTES.g = async (arg) => {
   const pt = E.map((e) => { const o = { year: e.year, n: e.R.length }; KINDS.forEach((k) => { o[k] = e.R.filter((r) => (hist.get(r.k) || []).some((x) => x.y < e.year && kindOf(x.t) === k)).length; }); return o; });
   const used = KINDS.filter((k) => pt.some((p) => p[k]));
   const prog = ((await index()).gbc || []).find((c) => (c.lines || []).includes(id));
+  if (!allP.size) return [h('h1', null, L.team), h('p', { class: 'sub' }, prog ? h('a', { class: 'btn', href: '#/gc/' + enc(prog.id) }, 'See ' + prog.n + ' by cycle →') : null),
+    card('Results only', 'No roster has been found for this squad yet, so only its finishes are shown. A squad list (screenshot or link) would fill in the rest.',
+      sortTable(['Year', 'Squad', 'Finish'], E.map((e) => ({ cells: [e.year, e.team || L.team, e.place ? ord(e.place) : '—'], sv: [e.year, null, e.place] })), [0, 2]))];
   const out = [h('h1', null, L.team), h('p', { class: 'sub' }, `${E.length} editions, ${E[0].year}–${E[E.length - 1].year}. Rosters before 2017 are often incomplete on ultimate-reference.com.`, prog ? [' ', h('a', { class: 'btn', href: '#/gc/' + enc(prog.id) }, 'See ' + prog.n + ' by cycle →')] : null),
     tiles([['Editions', E.length], ['Players used', allP.size], ['Best finish', ord(best), (() => { const n = pl.filter((e) => e.place <= 3).length; return n + (n === 1 ? ' medal' : ' medals'); })()], ['Carried over', E.some((e) => e.ret != null) ? pct(d3.mean(E.filter((e) => e.ret != null), (e) => e.ret)) : '—', 'average share of a squad who were in the one before']]),
     h('div', { class: 'grid3' },

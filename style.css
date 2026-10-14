@@ -15,12 +15,13 @@
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.45 var(--font); }
 a { color: var(--c0); text-decoration: none; } a:hover { text-decoration: underline; }
-.top { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 10; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; padding: 10px 16px; background: var(--panel); border-bottom: 1px solid var(--line); }
+.top { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 10; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 10px 16px; background: var(--panel); border-bottom: 1px solid var(--line); }
 .brand { font-weight: 700; font-size: 20px; color: var(--fg); }
 nav { display: flex; flex-wrap: wrap; gap: 2px; }
 nav a { padding: 4px 10px; border-radius: 999px; color: var(--muted); }
 nav a.on { background: var(--fg); color: var(--panel); text-decoration: none; }
-.search { position: relative; margin-left: auto; min-width: min(100%, 260px); }
+.search { position: relative; margin-left: auto; width: 190px; min-width: 0; }
+.search input { box-sizing: border-box; }
 .search input { width: 100%; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--fg); font: inherit; }
 .qres { position: absolute; right: 0; left: 0; top: 36px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.12); max-height: 60vh; overflow: auto; }
 .qres a { display: block; padding: 6px 10px; color: var(--fg); } .qres a:hover, .qres a.sel { background: var(--bg); text-decoration: none; }
@@ -166,3 +167,5 @@ body.gated > header, body.gated > main, body.gated > footer, body.gated > .back 
 
 .chip { display:inline-flex; align-items:center; gap:4px; padding:2px 8px; margin:2px; border:1px solid var(--line); border-radius:999px; font-size:12px; cursor:pointer; }
 .chip.on { background: color-mix(in srgb, var(--c0) 18%, transparent); border-color: var(--c0); }
+.mpctl { display: flex; gap: 2px; margin-left: 0; } .mpctl .chip { margin: 0; padding: 2px 7px; font-size: 11px; color: var(--fg); background: var(--bg); } .mpctl .chip.on { background: var(--c0); color: #fff; } @media (max-width: 760px) { .mpctl { order: 3; } }
+.mpnote { background: var(--panel2, #eef1f6); padding: 6px 10px; border-radius: 6px; }
