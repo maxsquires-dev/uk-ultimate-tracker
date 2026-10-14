@@ -155,3 +155,6 @@ body.gated > header, body.gated > main, body.gated > footer, body.gated > .back 
 .gate-flag { width: 36px; height: 6px; border-radius: 3px; background: linear-gradient(90deg, var(--uku-red) 50%, var(--uku-blue) 50%); }
 .gate-keep { display: flex; align-items: center; gap: 6px; margin: 0; }
 .gate-msg { margin: 0; min-height: 1.2em; color: var(--uku-red); font-size: .9em; }
+.pathfind { min-width: 220px; font: inherit; padding: 6px 10px; border: 1px solid var(--axis); border-radius: 8px; background: var(--panel); color: var(--fg); }
+.pathinfo:empty { display: none; }
+.pathinfo { margin: 4px 0 8px; font-size: 1rem; }
