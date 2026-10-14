@@ -221,7 +221,7 @@ index().then((I) => { $('#built').textContent = 'Data built ' + I.built + ' · '
 // ---------- shared: player profiles ----------
 async function profile(k) { const I = await index(); const e = I.players.find((p) => p.k === k); if (!e) return null; const b = await getJSON('p/' + String(e.b).padStart(2, '0') + '.json'); return b[k] || null; }
 const CMP = (() => { let s = []; try { s = JSON.parse(localStorage.getItem('cmp') || '[]'); } catch (e) {} return { list: () => s, has: (k) => s.includes(k), toggle(k) { s = s.includes(k) ? s.filter((x) => x !== k) : [...s, k].slice(-5); try { localStorage.setItem('cmp', JSON.stringify(s)); } catch (e) {} }, clear() { s = []; try { localStorage.setItem('cmp', '[]'); } catch (e) {} } }; })();
-const CTX_COL = (tt) => /GB|national/i.test(tt) ? COL()[1] : /Overseas|Other national/i.test(tt) ? COL()[3] : /Training/i.test(tt) ? COL()[2] : /Masters/i.test(tt) ? COL()[6] : /Secondary|second/i.test(tt) ? COL()[5] : COL()[0];
+const CTX_COL = (tt) => /Overseas|Other national/i.test(tt) ? COL()[3] : /GB|national/i.test(tt) ? COL()[1] : /Training/i.test(tt) ? COL()[2] : /Masters/i.test(tt) ? COL()[6] : /Secondary|second/i.test(tt) ? COL()[5] : COL()[0];
 
 // ---------- home ----------
 ROUTES[''] = async () => {
