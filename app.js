@@ -576,12 +576,13 @@ ROUTES.t = async (id) => {
   const ret = S.filter((s) => s.retention != null);
   const slug = (s) => String(s).toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
   const ix = (await index()).teams.find((x) => x.id === id) || { n: t.team };
-  const out = [h('div', { class: 'teamhead' }, badge(ix, 56), h('h1', null, t.team)), h('p', { class: 'sub' }, `${t.division} · ` + (t.history_only ? `results ${t.first_year}–${t.last_year} (no rosters in the data yet)` : `rosters ${t.first_year}–${t.last_year}, results from ${d3.min(res, (r) => r.year) ?? t.first_year}`)),
+  const out = [h('div', { class: 'teamhead' }, badge(ix, 56), h('h1', null, t.team)), h('p', { class: 'sub' }, `${t.division} · ` + (t.history_only ? ((t.results || []).length ? `results ${t.first_year}–${t.last_year}` : `squad lists ${t.first_year}–${t.last_year}`) + ((t.grid || []).length ? ' (earlier seasons only)' : ' (no rosters in the data yet)') : `rosters ${t.first_year}–${t.last_year}, results from ${d3.min(res, (r) => r.year) ?? t.first_year}`)),
     tiles([['Seasons with rosters', t.history_only ? '—' : t.n_seasons], ['Players used', t.players_used ?? '—', 'everyone who played at least once'], ['Average retention', ret.length ? pct(d3.mean(ret, (s) => s.retention)) : '—', 'of last season’s core roster back'],
       ['Major titles', majors.length, majors.length ? d3.rollups(majors, (v) => v.length, (r) => r.kind).map(([k, n]) => n + '× ' + k).join(', ') : 'Nationals, EUCF, WUCC, Elite Invite, masters worlds'], ['Podiums', res.filter((r) => r.place && r.place <= 3).length, 'all competitions in the data']]),
     card('Honours by competition', 'Every finish we have, by competition and season. Gold, silver and bronze mark medals; a number is the place. Hover for the events; click to open the competition.', honours(res, { compGo: (k) => slug(k) }))];
   if (t.eucs && t.eucs.length) out.push(eucsCard(t.eucs));
-  if (t.history_only) return out;
+  if (t.history_only && !(t.grid || []).length) return out;
+  if (t.history_only) { out.push(whoPlayed(t, C)); return out; }
   // results
   const evPts = S.flatMap((s) => (s.events || []).map((e) => ({ x: s.year, y: e.pct, tip: [e.event, `${ord(e.place)}${e.field ? ' of ' + e.field : ''} · percentile ${f0(e.pct)}`], fill: MEDAL(e.place) || C[0], r: 4 })));
   out.push(h('div', { class: 'grid2' },
@@ -619,15 +620,20 @@ ROUTES.t = async (id) => {
   // strength
   const sm = [['Core roster size', 'roster_size'], ['GB players (last 3 seasons)', 'gb_players'], ['Experience (earlier seasons here)', 'experience'], ['Top-15 individual quality', 'top15']];
   out.push(card('Roster strength over time', null, h('div', { class: 'grid2' }, sm.map(([n, f], i) => h('div', null, h('h3', null, n), lineChart([{ name: n, color: C[i % 8], pts: S.map((s) => ({ x: s.year, y: s[f] })) }], { W: 520, H: 180, legend: false }))))));
-  // who played when
-  const cell = (c, ev) => c === 'team' ? { color: C[0], op: ev <= 1 ? 0.55 : 1 } : c === 'squad' ? { color: C[0], op: 0.25 } : c === 'training' ? { color: C[2], op: 0.8 } : c && c.startsWith('other:') ? { color: C[7], op: 0.35 } : null;
+  out.push(whoPlayed(t, C));
+  return out;
+};
+
+// team page: who played when, including earlier seasons from the history layer
+function whoPlayed(t, C) {
+  const YRS = [...new Set([...(t.hist_years || []), ...((t.seasons || []).length ? [2022, 2023, 2024, 2025, 2026] : []), ...(t.unnamed || []).map((u) => u.y)])].sort((a, b) => a - b);
+  const cell = (c, ev) => c === 'team' ? { color: C[0], op: ev <= 1 ? 0.55 : 1 } : c === 'hist' ? { color: C[0], op: 0.45 } : c === 'squad' ? { color: C[0], op: 0.25 } : c === 'training' ? { color: C[2], op: 0.8 } : c && c.startsWith('other:') ? { color: C[7], op: 0.35 } : null;
   const G = (t.grid || []).slice().sort((a, b) => a.first - b.first || b.seasons - a.seasons || a.n.localeCompare(b.n));
   // names on a squad list with no full name: shown here only, no profile
   const UN = d3.rollups(t.unnamed || [], (v) => v.map((u) => u.y), (u) => u.n).map(([n, ys]) => ({ label: n + ' (name unknown)', go: null, cells: Object.fromEntries(ys.map((y) => [y, { color: C[7], op: 0.6, tip: [n + ' · ' + y, 'On the squad list by nickname or first name only; no profile until the full name is known'] }])) }));
-  out.push(card('Who played when', `${G.length} players${UN.length ? ` (plus ${UN.length} listed by nickname only, at the bottom)` : ''}. Solid = core roster (lighter if one event), pale = played but not at roster-locked events, green = training player, grey = with another club that season. Click a name for their profile.`,
-    h('div', { class: 'tbox', style: 'max-height:40rem' }, presenceGrid(G.map((r) => ({ label: r.n, go: '#/p/' + enc(r.k), cells: Object.fromEntries(Object.entries(r.cells).map(([y, c]) => { const v = cell(c, (r.ev || {})[y] || 0); return [y, v && { ...v, tip: [r.n + ' · ' + y, c.startsWith('other:') ? 'With ' + c.slice(6) : c === 'team' ? ((r.ev || {})[y] || 0) + ' events (core roster)' : c === 'squad' ? 'Played, not at locked events' : 'Training player'] }]; }).filter(([, v]) => v)) })).concat(UN), [2022, 2023, 2024, 2025, 2026]))));
-  return out;
-};
+  return card('Who played when', `${G.length} players${UN.length ? ` (plus ${UN.length} listed by nickname only, at the bottom)` : ''}. Solid = core roster (lighter if one event), pale = played but not at roster-locked events, green = training player, grey = with another club that season. Seasons before 2022 come from older rosters and kit lists, so they're less complete. Click a name for their profile.`,
+    h('div', { class: 'tbox', style: 'max-height:40rem' }, presenceGrid(G.map((r) => ({ label: r.n, go: '#/p/' + enc(r.k), cells: Object.fromEntries(Object.entries(r.cells).map(([y, c]) => { const v = cell(c, (r.ev || {})[y] || 0); return [y, v && { ...v, tip: [r.n + ' · ' + y, c.startsWith('other:') ? 'With ' + c.slice(6) : c === 'team' ? ((r.ev || {})[y] || 0) + ' events (core roster)' : c === 'squad' ? 'Played, not at locked events' : c === 'hist' ? 'On the squad (earlier season: roster or kit list)' : 'Training player'] }]; }).filter(([, v]) => v)) })).concat(UN), YRS)));
+}
 
 // ---------- GB squads ----------
 ROUTES.gb = async () => {
