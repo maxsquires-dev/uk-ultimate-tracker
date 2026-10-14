@@ -176,7 +176,7 @@ async function route() {
   untip();
   const [_, view = '', ...rest] = location.hash.replace(/^#/, '').split('/');
   const arg = rest.length ? decodeURIComponent(rest.join('/')) : null;
-  document.querySelectorAll('#nav a').forEach((a) => a.classList.toggle('on', a.getAttribute('href').split('/')[1] === ({ p: 'players', tree: 'players', t: 'teams', g: 'gb', gc: 'gb', e: 'events' }[view] || view)));
+  document.querySelectorAll('#nav a').forEach((a) => a.classList.toggle('on', a.getAttribute('href').split('/')[1] === ({ p: 'players', tree: 'players', t: 'teams', g: 'gb', gc: 'gb', pathway: 'gb', e: 'events' }[view] || view)));
   const fn = ROUTES[view] || ROUTES[''];
   VIEW.replaceChildren(h('p', { class: 'loading' }, 'Loading…'));
   try { const out = await fn(arg); VIEW.replaceChildren(...[out].flat()); } catch (e) { console.error(e); VIEW.replaceChildren(card('Something went wrong', String(e.message || e))); }
@@ -577,9 +577,70 @@ ROUTES.gb = async () => {
   const cycCard = card('Cycles', 'A Euros followed by the next Worlds is one cycle (e.g. 2023 EUC + 2024 WUC). Open a programme to see each cycle’s Euros squad, Worlds squad and crossover, and who carries through from cycle to cycle.',
     h('div', { class: 'cycgrid' }, famOrder.filter((f) => cyc.some((c) => c.fam === f)).map((f) => h('div', { class: 'cycfam' }, h('h3', null, { Senior: 'Senior (EUC + WUGC/WUC)', 'World Games': 'World Games', U24: 'U24', U20: 'U20 (Euros + Worlds)', U17: 'U17', Masters: 'Masters (Euros + Worlds)', Beach: 'Beach (Euros + Worlds)', Indoor: 'Indoor' }[f]),
       cyc.filter((c) => c.fam === f).map((c) => h('a', { class: 'cycrow', href: '#/gc/' + enc(c.id) }, h('b', null, c.n.replace(/^GB (U\d+ |Beach |Indoor |World Games )?/, '')), h('span', { class: 'muted' }, c.cyc.slice(-3).map(([l, e, w]) => l + ' ' + (w != null || e != null ? [e != null ? fin(e) : null, w != null ? fin(w) : null].filter(Boolean).join('/') : '')).join(' · '))))))));
-  return [h('h1', null, 'GB squads'), h('p', { class: 'sub' }, 'Every GB squad we have since 2010, with its finish. Click a squad line to follow it over time, or a circle to open that squad.'), cycCard,
+  return [h('h1', null, 'GB squads'), h('p', { class: 'sub' }, 'Every GB squad we have since 2010, with its finish. Click a squad line to follow it over time, or a circle to open that squad.'),
+    card('GB pathway', 'How players move from U17 to U20, U24, senior and masters squads, as a flow you can click into.', h('a', { class: 'btn primary', href: '#/pathway' }, 'Open the pathway →')), cycCard,
     card(null, null, h('div', { class: 'controls' }, h('select', { onchange: (e) => { st.lvl = e.target.value; draw(); } }, [['', 'All levels'], ['Senior', 'Senior (World Games, WUGC, EUC)'], ['U24', 'U24'], ['Junior', 'U20 and U17'], ['Beach', 'Beach'], ['Masters', 'Masters'], ['Indoor', 'Indoor']].map(([v, l]) => h('option', { value: v }, l)))), box),
     card('Most-capped players', 'By number of GB squads in the data (all levels).', await capsTable())];
+};
+// ---------- GB pathway: U17 -> U20 -> U24 -> Senior -> Masters as a flow ----------
+ROUTES.pathway = async () => {
+  const D = await getJSON('gbpath.json'); const I = await index(); const C = COL();
+  const pInfo = new Map(I.players.map((p) => [p.k, p]));
+  const MAIN = D.stages, SCOL = { U17: C[1], U20: C[6], U24: C[2], Senior: C[0], Masters: C[5] };
+  const LAB = { U17: 'U17', U20: 'U20', U24: 'U24', Senior: 'Senior (EUC, WUGC, World Games)', Masters: 'Masters (incl. beach masters)' };
+  const P = D.players.map(([k, n, sq, oth]) => { const first = {}; sq.forEach(([s, y]) => { if (!(s in first)) first[s] = y; });
+    return { k, n, sq, oth, first, stages: MAIN.filter((s) => s in first), y0: d3.min(sq, (x) => x[1]), divs: new Set(sq.map((x) => (x[2].match(/(Open|Women|Mixed)$/) || [])[1]).filter(Boolean)) }; });
+  const st = { era: '', div: '' };
+  const ERAS = [['', 'All years'], ['2010-2014', 'First GB squad 2010–14'], ['2015-2019', 'First GB squad 2015–19'], ['2020-2026', 'First GB squad 2020–26']];
+  const pathTxt = (p) => p.stages.slice().sort((a, b) => p.first[a] - p.first[b] || MAIN.indexOf(a) - MAIN.indexOf(b)).map((s) => `${s} ${p.first[s]}`).join(' → ');
+  const squads = (p) => p.sq.map(([s, y, t, pl]) => `${t.replace(/^GB /, '')} ${y}${pl ? ' (' + ord(pl) + ')' : ''}`).join('; ');
+  const rowsFor = (L) => L.slice().sort((a, b) => b.stages.length - a.stages.length || a.y0 - b.y0).map((p) => { const e = pInfo.get(p.k) || {};
+    return { cells: [playerLink(p.k, p.n), pathTxt(p) || '—', squads(p), [...new Set(p.sq.map((x) => x[4]).filter(Boolean))].join(', ') || '—', p.oth || '', e.y ? `${e.t || '—'} (${e.y})` : '—'], sv: [p.n, p.stages.length, null, null, p.oth ? 1 : 0, e.y] }; });
+  const HEAD = ['Player', 'Pathway (first season at each level)', 'Every GB squad', 'Clubs at the time', 'Also played for', 'Latest club'];
+  const open = (ev, title, note, L) => showDrill(anchorOf(ev), { title, note, sum: [['Players', L.length], ['Reached Senior', L.filter((p) => 'Senior' in p.first).length], ['Also another nation', L.filter((p) => p.oth).length]], head: HEAD, num: [], rows: rowsFor(L) });
+  const box = h('div'), side = h('div', { class: 'controls' }), sumBox = h('div');
+  const draw = () => {
+    const L = P.filter((p) => (!st.era || (p.y0 >= +st.era.slice(0, 4) && p.y0 <= +st.era.slice(5))) && (!st.div || p.divs.has(st.div)));
+    const nodes = MAIN.map((s, i) => ({ s, i, ps: L.filter((p) => s in p.first) }));
+    const links = []; L.forEach((p) => p.stages.slice(1).forEach((b, j) => { const a = p.stages[j]; let l = links.find((x) => x.a === a && x.b === b); if (!l) links.push(l = { a, b, ps: [] }); l.ps.push(p); }));
+    const W = 1000, H = 440, nw = 18, padT = 34, mx = d3.max(nodes, (n) => n.ps.length) || 1, k = (H - padT - 20) / mx;
+    const X = (i) => 30 + i * ((W - 60 - nw - 150) / (MAIN.length - 1));
+    nodes.forEach((n) => { n.h = Math.max(2, n.ps.length * k); n.x = X(n.i); n.y = padT + (H - padT - 20 - n.h) / 2; n.outY = n.y; n.inY = n.y; });
+    const N = Object.fromEntries(nodes.map((n) => [n.s, n]));
+    links.sort((p, q) => MAIN.indexOf(p.a) - MAIN.indexOf(q.a) || MAIN.indexOf(p.b) - MAIN.indexOf(q.b));
+    links.forEach((l) => { l.t = l.ps.length * k; l.y0 = N[l.a].outY; N[l.a].outY += l.t; });
+    links.slice().sort((p, q) => MAIN.indexOf(p.b) - MAIN.indexOf(q.b) || MAIN.indexOf(p.a) - MAIN.indexOf(q.a)).forEach((l) => { l.y1 = N[l.b].inY; N[l.b].inY += l.t; });
+    const { box: b, svg } = svgBox(W, H);
+    MAIN.forEach((s, i) => svg.append('text').attr('x', X(i) + nw / 2).attr('y', 14).attr('text-anchor', 'middle').style('font-weight', 600).style('fill', css('--fg')).text(s));
+    const band = (l) => { const x0 = N[l.a].x + nw, x1 = N[l.b].x, xm = (x0 + x1) / 2; return `M${x0},${l.y0}C${xm},${l.y0} ${xm},${l.y1} ${x1},${l.y1}L${x1},${l.y1 + l.t}C${xm},${l.y1 + l.t} ${xm},${l.y0 + l.t} ${x0},${l.y0 + l.t}Z`; };
+    const gap = (l) => d3.median(l.ps, (p) => p.first[l.b] - p.first[l.a]);
+    onTip(svg.append('g').selectAll('path').data(links).join('path').attr('class', 'flow').attr('d', band).attr('fill', (l) => SCOL[l.a]).attr('fill-opacity', (l) => MAIN.indexOf(l.b) - MAIN.indexOf(l.a) > 1 ? 0.18 : 0.35)
+      .style('cursor', 'pointer').on('click', (ev, l) => open(ev, `${l.a} → ${l.b}`, `Players whose next GB level after ${l.a} was ${l.b}. Typical gap: ${gap(l)} season${gap(l) === 1 ? '' : 's'}.`, l.ps)),
+      (l) => [`${l.a} → ${l.b}`, `${l.ps.length} players (${pct(l.ps.length / N[l.a].ps.length)} of ${l.a})`, `typically ${gap(l)} season${gap(l) === 1 ? '' : 's'} later`, CLICK]);
+    const ng = svg.append('g').selectAll('g').data(nodes).join('g').style('cursor', 'pointer').on('click', (ev, n) => open(ev, `Everyone who played GB ${n.s}`, LAB[n.s], n.ps));
+    onTip(ng.append('rect').attr('x', (n) => n.x).attr('y', (n) => n.y).attr('width', nw).attr('height', (n) => n.h).attr('rx', 3).attr('fill', (n) => SCOL[n.s]), (n) => {
+      const inn = links.filter((l) => l.b === n.s).reduce((a, l) => a + l.ps.length, 0), out = links.filter((l) => l.a === n.s).reduce((a, l) => a + l.ps.length, 0);
+      return [LAB[n.s], `${n.ps.length} players`, `${n.ps.length - inn} started their GB pathway here`, `${n.ps.length - out} went no further up`, CLICK]; });
+    ng.append('text').attr('x', (n) => n.x + nw + 6).attr('y', (n) => n.y + n.h / 2 + 4).style('fill', css('--fg')).text((n) => n.ps.length);
+    box.replaceChildren(b, h('p', { class: 'note' }, 'Bands show each player’s next GB level up (skips draw as fainter bands, e.g. U20 straight to Senior). Click a band or a level for the players.'));
+    // side routes and summary
+    const beach = L.filter((p) => p.sq.some((x) => x[0] === 'Beach')), indoor = L.filter((p) => p.sq.some((x) => x[0] === 'Indoor')), oth = L.filter((p) => p.oth);
+    const chip = (t, arr, note) => h('button', { class: 'btn', onclick: (ev) => open(ev, t, note, arr) }, `${t} (${arr.length})`);
+    side.replaceChildren(h('span', { class: 'muted' }, 'Also:'), chip('GB beach', beach, 'Players in a senior GB beach squad (beach masters count as Masters above).'), chip('GB indoor', indoor, 'Players in a GB indoor squad.'), chip('Played for another nation', oth, 'Players who also appear for another national team.'));
+    const yth = L.filter((p) => 'U17' in p.first || 'U20' in p.first), ythS = yth.filter((p) => 'Senior' in p.first), sen = L.filter((p) => 'Senior' in p.first), senY = sen.filter((p) => 'U17' in p.first || 'U20' in p.first || 'U24' in p.first);
+    sumBox.replaceChildren(tiles([['Players', L.length], ['Youth (U17/U20) who reached Senior', `${ythS.length} of ${yth.length}`, pct(ythS.length / (yth.length || 1))], ['Senior players who came through U17/U20/U24', `${senY.length} of ${sen.length}`, pct(senY.length / (sen.length || 1))], ['Senior to Masters', N.Masters ? links.filter((l) => l.a === 'Senior' && l.b === 'Masters').reduce((a, l) => a + l.ps.length, 0) : 0]]));
+  };
+  draw();
+  // how the pathway has changed: cohorts by first GB squad
+  const cohorts = d3.range(2010, 2027, 2).map((y) => { const c = P.filter((p) => p.y0 >= y && p.y0 < y + 2 && ('U17' in p.first || 'U20' in p.first)); return { x: `${y}–${String(y + 1).slice(2)}`, y, n: c.length, u24: c.filter((p) => 'U24' in p.first).length / (c.length || 1), sen: c.filter((p) => 'Senior' in p.first).length / (c.length || 1), c }; }).filter((r) => r.n >= 5);
+  const coh = lineChart([{ name: 'Went on to U24', color: C[2], pts: cohorts.map((r) => ({ x: r.y, y: r.u24, tip: [`Youth players first capped ${r.x}`, `${pct(r.u24)} of ${r.n} went on to U24`], onclick: (ev) => open(ev, `Youth players first capped ${r.x}`, 'Their whole GB pathway so far.', r.c) })) },
+    { name: 'Went on to Senior', color: C[0], pts: cohorts.map((r) => ({ x: r.y, y: r.sen, tip: [`Youth players first capped ${r.x}`, `${pct(r.sen)} of ${r.n} reached Senior`], onclick: (ev) => open(ev, `Youth players first capped ${r.x}`, 'Their whole GB pathway so far.', r.c) })) }], { W: 1000, H: 220, yDomain: [0, 1], yFmt: pct, xFmt: (v) => `${v}–${String(v + 1).slice(2)}` });
+  const ctl = h('div', { class: 'controls' },
+    h('select', { onchange: (e) => { st.era = e.target.value; draw(); } }, ERAS.map(([v, l]) => h('option', { value: v }, l))),
+    h('select', { onchange: (e) => { st.div = e.target.value; draw(); } }, [['', 'All divisions'], ['Open', 'Played a GB Open squad'], ['Women', 'Played a GB Women’s squad'], ['Mixed', 'Played a GB Mixed squad']].map(([v, l]) => h('option', { value: v }, l))));
+  return [h('h1', null, 'GB pathway'), h('p', { class: 'sub' }, 'How players move up through GB squads: U17, U20, U24, Senior, then Masters. Built from every GB roster we have since 2010; rosters before about 2017 are incomplete, so early flows are undercounted.'),
+    card(null, null, ctl, sumBox, box, side),
+    card('Do youth players go on?', 'Players whose first GB squad was U17 or U20, grouped by when they were first capped: the share who later made a U24 and a senior squad. Recent groups haven’t had time to get there yet. Click a point for the players.', coh)];
 };
 async function capsTable() {
   const I = await index(); const L = I.players.filter((p) => p.gb >= 3).sort((a, b) => b.gb - a.gb).slice(0, 60);
@@ -869,7 +930,7 @@ ROUTES.trends = async () => {
   const gbDrill = (g) => (ev) => dr(ev, (D) => { const L = D.gbp.filter((r) => r.sq === g.team && r.y === g.year);
     const R = L.map((r) => { const w = D.who(r.p); return { cells: [pcell(w), r.club || '—', r.jr ? 'yes' : 'no', r.jr || '—', nowOf(w)], sv: [w.n, r.club, r.jr ? 1 : 0, r.jr] }; }).sort((a, b) => b.sv[2] - a.sv[2] || a.sv[0].localeCompare(b.sv[0]));
     return { title: `${g.team} ${g.year}`, note: `${g.junior} of ${g.players} had played a GB U17 or U20 squad before.`, extra: [h('div', { class: 'controls' }, h('a', { class: 'btn', href: '#/g/' + enc(g.team.toLowerCase().replace(/[^a-z0-9]+/g, '-')) }, 'Squad page →'))], head: ['Player', 'Club then', 'Came through juniors', 'Junior squads before', 'Latest team'], num: [], rows: R }; });
-  out.push(card('GB pathway: senior and U24 players who came through junior squads', 'Share of each squad who had played a GB U17 or U20 squad before. Rosters before about 2017 are incomplete, so early values are low partly for that reason. Click a point for the squad.',
+  out.push(card('GB pathway: senior and U24 players who came through junior squads', ['Share of each squad who had played a GB U17 or U20 squad before. Rosters before about 2017 are incomplete, so early values are low partly for that reason. Click a point for the squad. ', h('a', { href: '#/pathway' }, 'Full pathway flow →')],
     lineChart(lines.map(([t, v], i) => ({ name: t.replace(/^GB /, ''), color: C[i % 8], pts: v.map((g) => ({ x: g.year, y: g.share, tip: [g.team + ' ' + g.year, `${g.junior} of ${g.players} had played U17/U20`], onclick: gbDrill(g) })) })), { W: 1000, H: 280, yDomain: [0, 1], yFmt: pct, labels: true }),
     finding(`Most recent: ${lines.map(([t, v]) => `${t.replace(/^GB /, '')} ${pct(v[v.length - 1].share)}`).slice(0, 6).join(', ')}. U24 squads draw much more on the junior programme than senior squads do.`, 'flat')));
   out.push(h('p', { class: 'note' }, 'Movement between clubs has its own page: ', h('a', { href: '#/moves' }, 'Moves →')));
