@@ -163,3 +163,6 @@ body.gated > header, body.gated > main, body.gated > footer, body.gated > .back 
 .hasinfo { cursor: help; }
 .ii { color: var(--muted); font-size: .8em; font-weight: 400; }
 .tip { max-width: 380px; }
+
+.chip { display:inline-flex; align-items:center; gap:4px; padding:2px 8px; margin:2px; border:1px solid var(--line); border-radius:999px; font-size:12px; cursor:pointer; }
+.chip.on { background: color-mix(in srgb, var(--c0) 18%, transparent); border-color: var(--c0); }

@@ -103,7 +103,7 @@ function lineChart(series, o = {}) {
   const ends = [];
   series.forEach((s) => {
     const pts = s.pts.filter((p) => p.y != null && xs.includes(p.x));
-    const linePts = xs.map((v) => s.pts.find((p) => p.x === v) || { x: v, y: null });   // a missing season breaks the line instead of bridging it
+    const linePts = s.bridge ? s.pts.slice().sort((a, b) => a.x - b.x) : xs.map((v) => s.pts.find((p) => p.x === v) || { x: v, y: null });   // a missing season breaks the line instead of bridging it
     if (s.line !== false) svg.append('path').datum(linePts).attr('fill', 'none').attr('stroke', s.color).attr('stroke-width', s.w || 2).attr('stroke-dasharray', s.dash || null).attr('d', d3.line((p) => x(p.x), (p) => y(p.y)).defined((p) => p.y != null));
     onTip(svg.append('g').selectAll('circle').data(pts).join('circle').attr('cx', (p) => x(p.x)).attr('cy', (p) => y(p.y)).attr('r', (p) => p.r || (s.dots === false ? 0 : 3.5)).attr('fill', (p) => p.fill || s.color).attr('stroke', s.color).attr('stroke-width', (p) => p.fill ? 1.5 : 0)
       .style('cursor', (p) => p.go || p.onclick ? 'pointer' : null).on('click', (ev, p) => { if (p.onclick) p.onclick(ev); else if (p.go) location.hash = p.go; }), (p) => [...(p.tip || [s.name, `${p.x}: ${o.yFmt ? o.yFmt(p.y) : f1(p.y)}`]), ...(p.onclick ? [CLICK] : [])]);
@@ -659,13 +659,14 @@ function eucsCard(L, all, team, division) {
     lineChart(series, { W: 1000, H: 240, yDomain: [mx, 1], yFmt: (v) => Number.isInteger(v) ? ord(v) : '', xs: [...new Set((all || []).concat(L).map((r) => r.season))].sort(), legend: false }),
     h('p', { class: 'note' }, h('a', { href: 'https://ranking.ultimatefederation.eu/', target: '_blank', rel: 'noopener' }, 'Open the EUCS ranking ↗')));
 }
-function ratingCard(t) {
+function ratingCard(t, TS) {
   const C = COL(), L = (t.rating || []).filter((r) => r.comparable), last = L[L.length - 1], best = L.slice().sort((a, b) => a.uk_rank - b.uk_rank)[0];
   const ev = (r) => [r.games ? `${r.games} scored games` : '', r.implied ? `${r.implied} placing comparisons` : ''].filter(Boolean).join(' + ');
   return card('Team strength from results', `A UK-only rating built from game scores where we have them (EUCS games 2024+, WUCC) and from finishing orders where we don’t (UKU Nationals, Tours, Regionals, EUCF). 1000 = an average UK ${t.division} team that season; the dashed lines show the uncertainty, which is wider when there are only placings. Not yet used in player scores.`,
     tiles([['Latest', last ? d3.format('.0f')(last.rating) : '—', last ? `${last.season}: ${ord(last.uk_rank)} of ${last.uk_n} UK ${t.division} teams` : ''], ['Best season', best ? `${ord(best.uk_rank)} in ${best.season}` : '—', best ? 'rating ' + d3.format('.0f')(best.rating) : ''], ['Evidence', last ? ev(last) || '—' : '—', 'latest season']]),
-    lineChart([{ name: 'Low', color: css('--axis'), dash: '3 3', w: 1, pts: L.map((r) => ({ x: r.season, y: r.low, r: 0 })) }, { name: 'High', color: css('--axis'), dash: '3 3', w: 1, pts: L.map((r) => ({ x: r.season, y: r.high, r: 0 })) },
-      { name: t.team, color: C[0], w: 2.5, pts: L.map((r) => ({ x: r.season, y: r.rating, r: r.games ? 5 : 3.5, tip: [`${t.team} · ${r.season}`, `rating ${d3.format('.0f')(r.rating)} (${d3.format('.0f')(r.low)}–${d3.format('.0f')(r.high)})`, `${ord(r.uk_rank)} of ${r.uk_n} UK ${t.division} teams`, ev(r)] })) }], { W: 1000, H: 240, legend: false, xs: L.map((r) => r.season), yDomain: [d3.min(L, (r) => r.low) - 40, d3.max(L, (r) => r.high) + 40] }),
+    lineChart([...Object.entries(TS || {}).filter(([k]) => k.startsWith(t.division + '|') && k !== t.division + '|' + t.team && d3.max(k && TS[k], (p) => p[1]) > 1100).map(([k, v]) => ({ name: k.split('|')[1], color: css('--grid'), w: 1, pts: v.filter((p) => L.some((r) => r.season === p[0])).map(([y, r]) => ({ x: y, y: r, r: 0, tip: [k.split('|')[1] + ' · ' + y, 'rating ' + r] })) })), { name: 'Low', color: css('--axis'), dash: '3 3', w: 1, pts: L.map((r) => ({ x: r.season, y: r.low, r: 0 })) }, { name: 'High', color: css('--axis'), dash: '3 3', w: 1, pts: L.map((r) => ({ x: r.season, y: r.high, r: 0 })) },
+      { name: t.team, color: C[0], w: 2.5, pts: L.map((r) => ({ x: r.season, y: r.rating, r: r.games ? 5 : 3.5, tip: [`${t.team} · ${r.season}`, `rating ${d3.format('.0f')(r.rating)} (${d3.format('.0f')(r.low)}–${d3.format('.0f')(r.high)})`, `${ord(r.uk_rank)} of ${r.uk_n} UK ${t.division} teams`, ev(r)] })) }], { W: 1000, H: 260, legend: false, xs: L.map((r) => r.season), yDomain: [Math.min(d3.min(L, (r) => r.low) - 40, 850), Math.max(d3.max(L, (r) => r.high) + 40, 1300)] }),
+    h('p', { class: 'note' }, 'Grey lines: other strong UK ' + t.division + ' teams, for comparison.'),
     (t.rating || []).some((r) => !r.comparable) ? h('p', { class: 'note' }, `Not rated in ${(t.rating || []).filter((r) => !r.comparable).map((r) => r.season).join(', ')}: that season’s results only link this team to teams with no scored games, so its rating couldn’t be compared with the rest of the UK.`) : null);
 }
 const teamDrill = (ev, title, L, t) => showDrill(anchorOf(ev), { title, head: ['Player', 'Seasons here', 'First', 'Last'], num: [1, 2, 3], rows: L.map((r) => ({ cells: [playerLink(r.k, r.n), r.ys.length, r.ys[0], r.ys[r.ys.length - 1]], sv: [r.n, r.ys.length, r.ys[0], r.ys[r.ys.length - 1]] })) });
@@ -681,7 +682,7 @@ ROUTES.t = async (id) => {
     tiles([['Seasons with rosters', t.history_only ? '—' : new Set((t.grid || []).flatMap((r) => Object.keys(r.cells))).size], ['Players used', t.players_used ?? '—', 'everyone who played at least once'], ['Average retention', ret.length ? pct(d3.mean(ret, (s) => s.retention)) : '—', 'of last season’s core roster back'],
       ['Major titles', majors.length, majors.length ? d3.rollups(majors, (v) => v.length, (r) => r.kind).map(([k, n]) => n + '× ' + k).join(', ') : 'Nationals, EUCF, WUCC, Elite Invite, masters worlds'], ['Podiums', res.filter((r) => r.place && r.place <= 3).length, 'all competitions in the data']]),
     card('Honours by competition', 'Every finish we have, by competition and season. Gold, silver and bronze mark medals; a number is the place. Hover for the events; click to open the competition.', honours(res, { compGo: (k) => slug(k) }))];
-  if (t.rating && t.rating.some((r) => r.comparable)) out.push(ratingCard(t));
+  if (t.rating && t.rating.some((r) => r.comparable)) out.push(ratingCard(t, (await getJSON('trends.json')).ratings_ts));
   if (t.eucs && t.eucs.length) out.push(eucsCard(t.eucs, (await getJSON('trends.json')).eucs_uk, t.team, t.division));
   if (t.history_only && !(t.grid || []).length) return out;
   if (t.history_only) { out.push(whoPlayed(t, C)); return out; }
@@ -783,6 +784,12 @@ ROUTES.gb = async () => {
   return [h('h1', null, 'GB squads'), h('p', { class: 'sub' }, 'Every GB squad we have since 2010, with its finish. Click a squad line to follow it over time, or a circle to open that squad.'),
     card('GB pathway', 'How players move from U17 to U20, U24, senior and masters squads, as a flow you can click into.', h('a', { class: 'btn primary', href: '#/pathway' }, 'Open the pathway →')), cycCard,
     card(null, null, h('div', { class: 'controls' }, h('select', { onchange: (e) => { st.lvl = e.target.value; draw(); } }, [['', 'All levels'], ['Senior', 'Senior (World Games, WUGC, EUC)'], ['U24', 'U24'], ['Junior', 'U20 and U17'], ['Beach', 'Beach'], ['Masters', 'Masters'], ['Indoor', 'Indoor']].map(([v, l]) => h('option', { value: v }, l)))), box),
+    (() => { const grp = (n) => /Master/.test(n) ? 'Masters' : /U17/.test(n) ? 'U17' : /U20/.test(n) ? 'U20' : /U24/.test(n) ? 'U24' : /Beach|Indoor/.test(n) ? null : 'Senior';
+      const gsel = h('select', null, ['Senior', 'U24', 'U20', 'U17', 'Masters'].map((g) => h('option', { value: g }, g))), gbox = h('div');
+      const drawG = () => { const L = I.gb.filter((g) => grp(g.n) === gsel.value && (g.cs || []).length);
+        gbox.replaceChildren(L.length ? lineChart(L.map((g, i) => ({ name: g.n.replace(/^GB /, ''), color: COL()[i % 8], w: 2.5, bridge: true, pts: g.cs.map(([y, v]) => ({ x: y, y: v, r: 5, tip: [g.n + ' ' + y, 'club strength ' + f0(v)], go: '#/g/' + enc(g.id) + '/' + y })) })), { W: 1000, H: 280, labels: true, yDomain: [0, 100] }) : h('p', { class: 'note' }, 'No club data for these squads.')); };
+      gsel.onchange = drawG; drawG();
+      return card('GB squad strength over time', 'Average results-based strength of the clubs each squad’s players were on that year (0–100, UK average club = 50), by squad level. Covers squads where we know players’ clubs, mostly 2014 on. Click a point for the squad; each squad page also shows what happened to its players afterwards.', h('div', { class: 'controls' }, gsel), gbox); })(),
     card('Most-capped players', 'By number of GB squads in the data (all levels).', await capsTable())];
 };
 // ---------- GB pathway: U17 -> U20 -> U24 -> Senior -> Masters as a flow ----------
@@ -981,6 +988,19 @@ ROUTES.g = async (arg) => {
       card('Finish', null, lineChart([{ name: 'Finish', color: C[0], pts: pl.map((e) => ({ x: e.year, y: e.place, fill: MEDAL(e.place), r: e.place <= 3 ? 6 : 4, tip: [e.team + ' ' + e.year, ord(e.place)], go: '#/g/' + enc(id) + '/' + e.year })) }], { W: 360, yDomain: [Math.max(4, d3.max(pl, (e) => e.place) || 4), 1], yFmt: (v) => Number.isInteger(v) ? ord(v) : '', legend: false })),
       card('Carried over from the squad before', 'Each squad split by who was in the previous one, who came back after a gap, and who was new to this squad. Click a bar for the players.', barChart(E.map((e) => ({ x: e.year, a: e.cont.length, b: e.gap.length, c: e.newc.length })), [{ key: 'a', name: 'In the squad before', color: C[0] }, { key: 'b', name: 'Back after a gap', color: C[5] }, { key: 'c', name: 'New to this squad', color: C[2] }], { W: 360, onClick: (d, k, ev) => { const e = E.find((x) => x.year === d.x); const L = { a: e.cont, b: e.gap, c: e.newc }[k.key]; gbDrill(ev, `${e.team} ${e.year}: ${{ a: 'in the squad before', b: 'back after a gap', c: 'new to this squad' }[k.key]}`, L); } })),
       card('GB experience in the squad', 'How many GB squads (any kind) each player had been in before this one. Click a bar for the players.', barChart(E.map((e) => ({ x: e.year, a: e.expL[0].length, b: e.expL[1].length, c: e.expL[2].length, d: e.expL[3].length })), [['a', 'First GB squad', C[2]], ['b', '2nd', C[0]], ['c', '3rd', C[5]], ['d', '4th+', C[1]]].map(([k, n, c]) => ({ key: k, name: n, color: c })), { W: 360, onClick: (d, k, ev) => { const e = E.find((x) => x.year === d.x); gbDrill(ev, `${e.team} ${e.year}: ${{ a: 'first GB squad', b: '2nd GB squad', c: '3rd GB squad', d: '4th+ GB squad' }[k.key]}`, e.expL['abcd'.indexOf(k.key)]); } })))];
+  // GB squad success, two ways: (1) results (Finish above) and (2) what happened to the players next
+  const AFT = [['Moved to a stronger club', C[2]], ['Same level', C[0]], ['Moved to a weaker club', C[1]], ['Still playing', C[5]], ['Not seen playing', css('--axis')], ['Too recent to tell', css('--grid')]];
+  const aftRows = (e, st) => e.R.filter((r) => r.after === st);
+  const aftDrill = (ev, e, st) => showDrill(anchorOf(ev), { title: `${e.team} ${e.year}: ${st.toLowerCase()}`, note: 'The three seasons after the squad. Club strength is the results-based team rating on a 0–100 scale (UK average 50).', head: ['Player', 'Club then', 'Club strength then', 'Clubs in the next 3 seasons', 'Best club strength after'], num: [2, 4],
+    rows: aftRows(e, st).map((r) => ({ cells: [playerLink(r.known ? r.k : 'h:' + r.k, r.n), r.club || '—', f0(r.club_lvl), r.after_clubs || '—', f0(r.after_lvl)], sv: [r.n, r.club, r.club_lvl, r.after_clubs, r.after_lvl] })) });
+  const kept = (e) => { const a = e.after || {}, n = d3.sum(Object.entries(a).filter(([k]) => k !== 'Too recent to tell'), ([, v]) => v); return n ? 1 - (a['Not seen playing'] || 0) / n : null; };
+  out.push(h('div', { class: 'grid2' },
+    card('After the squad: who kept playing, and where', 'For each squad, what players did in the three seasons after: moved to a stronger or weaker club (by results-based club strength), stayed at the same level, kept playing (club strength unknown), or weren’t seen playing anywhere in the data. Before about 2020 the club rosters are thin, so “not seen” is overstated. Click a bar for the players.',
+      barChart(E.map((e) => Object.assign({ x: e.year }, ...AFT.map(([k], i) => ({ ['a' + i]: (e.after || {})[k] || 0 })))), AFT.map(([k, c], i) => ({ key: 'a' + i, name: k, color: c })), { W: 520, onClick: (d, k, ev) => { const e = E.find((x) => x.year === d.x); aftDrill(ev, e, AFT[+k.key.slice(1)][0]); } }),
+      finding(E.filter((e) => kept(e) != null).slice(-3).map((e) => `${e.year}: ${pct(kept(e))} kept playing`).join(' · ') || 'Too recent to tell.', 'flat')),
+    card('Squad strength', 'Average strength of the clubs the players were on that year (results-based, 0–100, UK average 50) and average player Quality (2022+ scores only). Hover a point for how many players it covers.',
+      lineChart([{ name: 'Club strength', color: C[0], w: 2.5, bridge: true, pts: E.filter((e) => e.club_strength != null).map((e) => ({ x: e.year, y: e.club_strength, tip: [`${e.team} ${e.year}`, `average club strength ${f0(e.club_strength)} (${e.club_strength_n} of ${e.R.length} players with a rated club)`] })) },
+        { name: 'Player quality', color: C[5], w: 2, bridge: true, pts: E.filter((e) => e.quality != null).map((e) => ({ x: e.year, y: e.quality, tip: [`${e.team} ${e.year}`, `average player Quality ${f0(e.quality)}`] })) }], { W: 520, yDomain: [0, 100], xs: E.map((e) => e.year) }))));
   if (used.length) out.push(card('Where the players came through', 'How many players in each edition had already been in each other kind of GB squad (a player can count in more than one column). Darker = bigger share of the squad. Click a cell for the players.', h('div', { class: 'tbox' }, heatGrid(pt.map((p) => ({ label: String(p.year), p })), used, (r, k) => { const e = E.find((x) => x.year === r.p.year); const L = e.R.filter((x) => (hist.get(x.k) || []).some((z) => z.y < e.year && kindOf(z.t) === k)); return { v: L.length, share: L.length / (r.p.n || 1), tip: [`${e.team} ${e.year}`, `${L.length} of ${r.p.n} had played ${k}`], onclick: (ev) => gbDrill(ev, `${e.team} ${e.year}: had played ${k}`, L) }; }, { fmt: (d) => `${d.v} · ${Math.round(100 * d.share)}%` }))));
   // the selected edition
   const clubs = d3.rollups(sel.R.filter((r) => r.club), (v) => v, (r) => r.club).sort((a, b) => b[1].length - a[1].length); const v_of = (c) => (clubs.find(([x]) => x === c) || [0, []])[1];
@@ -1215,9 +1235,17 @@ ROUTES.trends = async () => {
       return box; };
     const drawR = () => rbox.replaceChildren(...['Open', 'Mixed', 'Women'].map((d) => { const L = T.ratings_all.filter((r) => r.division === d && r.season === +ysel.value).sort((a, b) => b.rating - a.rating).slice(0, 14);
       return h('div', null, h('h3', null, d), L.length ? dots(L, d) : h('p', { class: 'note' }, 'No results for that season.')); }));
-    ysel.onchange = drawR; drawR();
+    const mode = h('select', null, h('option', { value: 's' }, 'By season'), h('option', { value: 't' }, 'Over time')), dsel = h('select', null, ['Open', 'Mixed', 'Women'].map((d) => h('option', { value: d }, d))), tpick = h('div', { class: 'controls' });
+    const TS = T.ratings_ts || {}, chosen = { Open: null, Mixed: null, Women: null };
+    const drawT = () => { const d = dsel.value; const all = Object.keys(TS).filter((k) => k.startsWith(d + '|')).map((k) => k.slice(d.length + 1));
+      const lastOf = (t) => (TS[d + '|' + t] || []).slice(-1)[0] || [0, 0]; all.sort((a, b) => lastOf(b)[0] - lastOf(a)[0] || lastOf(b)[1] - lastOf(a)[1]);
+      if (!chosen[d]) chosen[d] = new Set(all.filter((t) => lastOf(t)[0] >= 2025).sort((a, b) => lastOf(b)[1] - lastOf(a)[1]).slice(0, 6));
+      tpick.replaceChildren(h('span', { class: 'note' }, 'Teams: '), ...all.slice(0, 40).map((t) => h('label', { class: 'chip' + (chosen[d].has(t) ? ' on' : '') }, h('input', { type: 'checkbox', checked: chosen[d].has(t) || null, onchange: (e) => { e.target.checked ? chosen[d].add(t) : chosen[d].delete(t); drawT(); } }), ' ' + t)));
+      rbox.replaceChildren(lineChart([...chosen[d]].map((t, i) => ({ name: t, color: C[i % 8], w: 2.5, pts: (TS[d + '|' + t] || []).map(([y, v]) => ({ x: y, y: v, tip: [t + ' · ' + y, 'rating ' + v], go: tidN.get(t + '|' + d) ? '#/t/' + enc(tidN.get(t + '|' + d)) : null })) })), { W: 1000, H: 320, labels: true }), tpick); };
+    const drawAny = () => { ysel.hidden = mode.value !== 's'; dsel.hidden = mode.value !== 't'; rbox.className = mode.value === 's' ? 'grid3' : ''; (mode.value === 's' ? drawR : drawT)(); };
+    mode.onchange = drawAny; dsel.onchange = drawAny; ysel.onchange = drawAny; dsel.hidden = true; drawR();
     out.push(card('UK team strength from results', 'A UK-only rating from game scores (EUCS games 2024+, WUCC) and finishing orders (UKU Nationals, Tours, Regionals, EUCF), back to 2010. 1000 = the average UK team in that division and season. Filled dots had scored games; hollow dots are placings only, with wider ranges. Top 14 per division; click a team for its page.',
-      h('div', { class: 'controls' }, ysel), rbox,
+      h('div', { class: 'controls' }, mode, ysel, dsel), rbox,
       vs.length ? finding(`Check against the EUF’s own EUCS rating (2024–26, UK teams): the two put UK teams in almost the same order (rank agreement ${d3.min(vs).toFixed(2)}–${d3.max(vs).toFixed(2)}, where 1 = identical). Ours uses UK results only and goes back to 2010.`, 'flat') : null));
   }
   if (T.eucs_uk && T.eucs_uk.length) {
