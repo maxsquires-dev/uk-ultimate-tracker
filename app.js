@@ -598,75 +598,99 @@ ROUTES.pathway = async () => {
     return { cells: [playerLink(p.k, p.n), pathTxt(p) || '—', squads(p), [...new Set(p.sq.map((x) => x[4]).filter(Boolean))].join(', ') || '—', p.oth || '', e.y ? `${e.t || '—'} (${e.y})` : '—'], sv: [p.n, p.stages.length, null, null, p.oth ? 1 : 0, e.y] }; });
   const HEAD = ['Player', 'Pathway (first season at each level)', 'Every GB squad', 'Clubs at the time', 'Also played for', 'Latest club'];
   const open = (ev, title, note, L) => showDrill(anchorOf(ev), { title, note, sum: [['Players', L.length], ['Reached Senior', L.filter((p) => 'Senior' in p.first).length], ['Also another nation', L.filter((p) => p.oth).length]], head: HEAD, num: [], rows: rowsFor(L) });
-  const box = h('div'), side = h('div', { class: 'controls' }), sumBox = h('div'), info = h('p', { class: 'note pathinfo' });
-  const ECOL = SCOL;   // a player keeps the colour of the level they entered at
+  const box = h('div'), side = h('div', { class: 'controls' }), sumBox = h('div'), info = h('p', { class: 'note pathinfo' }), jbox = h('div');
+  const ECOL = { U17: '#e07b24', U20: '#8e5bb5', U24: '#2a9d6a', Senior: '#2b56a8', Masters: '#8a8f98' };   // entry colours, kept all the way through
+  const IX = (s) => MAIN.indexOf(s);
   const draw = () => {
     const L = P.filter((p) => (!st.era || (p.y0 >= +st.era.slice(0, 4) && p.y0 <= +st.era.slice(5))) && (!st.div || p.divs.has(st.div)));
     const J = L.filter((p) => p.stages.length);
-    J.forEach((p) => { p.seq = p.stages.slice().sort((a, b) => p.first[a] - p.first[b] || MAIN.indexOf(a) - MAIN.indexOf(b)); p.entry = p.seq[0]; });
-    const IX = (s) => MAIN.indexOf(s);
-    // slices: players who entered at e and reached level s
-    const slice = {}; MAIN.forEach((s) => { slice[s] = {}; MAIN.forEach((e) => { slice[s][e] = { s, e, ps: [] }; }); });
-    J.forEach((p) => p.seq.forEach((s) => slice[s][p.entry].ps.push(p)));
-    // links: consecutive levels in the order played, kept apart by entry level
-    const LK = new Map();
-    J.forEach((p) => p.seq.slice(1).forEach((b, j) => { const a = p.seq[j], key = p.entry + '|' + a + '|' + b; if (!LK.has(key)) LK.set(key, { e: p.entry, a, b, ps: [] }); LK.get(key).ps.push(p); }));
-    const links = [...LK.values()];
-    links.forEach((l) => { l.kind = IX(l.b) === IX(l.a) + 1 ? 'next' : IX(l.b) > IX(l.a) ? 'skip' : 'down'; });
-    const stops = []; MAIN.slice(0, -1).forEach((s) => MAIN.forEach((e) => { const ps = slice[s][e].ps.filter((p) => p.seq[p.seq.length - 1] === s); if (ps.length) stops.push({ s, e, ps }); }));
-    // geometry
-    const W = 1000, nw = 16, colH = 270, mx = d3.max(MAIN, (s) => d3.sum(MAIN, (e) => slice[s][e].ps.length)) || 1, k = colH / mx;
-    const downs = links.filter((l) => l.kind === 'down'), skips = links.filter((l) => l.kind === 'skip');
-    const topLane = 34 + d3.sum(downs, (l) => l.ps.length * k + 3), y0 = topLane + 14;
-    const X = (i) => 40 + i * ((W - 80 - nw) / (MAIN.length - 1));
-    const node = {};
-    MAIN.forEach((s, i) => { const tot = d3.sum(MAIN, (e) => slice[s][e].ps.length); let y = y0 + (colH - tot * k) / 2; node[s] = { s, x: X(i), y, h: tot * k, tot };
-      MAIN.forEach((e) => { const sl = slice[s][e]; sl.x = X(i); sl.y = y; sl.h = sl.ps.length * k; sl.inY = y + (e === s ? sl.h : 0); sl.outY = y; y += sl.h; }); });
-    const bottom = y0 + colH + 14;
-    // in-slots: entrants at a level have no incoming band, so incoming fills the rest of the slice; out-slots: onward bands then the "stopped" tail
-    links.sort((p, q) => IX(p.b) - IX(q.b) || IX(p.a) - IX(q.a)); links.forEach((l) => { l.t = l.ps.length * k; });
-    MAIN.forEach((s) => MAIN.forEach((e) => { const sl = slice[s][e];
-      links.filter((l) => l.b === s && l.e === e).sort((p, q) => IX(p.a) - IX(q.a)).forEach((l) => { l.y1 = sl.y + (e === s ? 0 : 0) + (sl.inUsed || 0); sl.inUsed = (sl.inUsed || 0) + l.t; });
-      links.filter((l) => l.a === s && l.e === e).sort((p, q) => IX(p.b) - IX(q.b)).forEach((l) => { l.y0 = sl.outY; sl.outY += l.t; });
-      stops.filter((t) => t.s === s && t.e === e).forEach((t) => { t.y0 = sl.outY; t.t = t.ps.length * k; sl.outY += t.t; }); }));
-    let lane = bottom, upLane = topLane;
+    J.forEach((p) => { p.seq = p.stages; p.entry = p.seq[0];   // levels in order of seniority; the entry level is the lowest reached
+      const chron = p.stages.slice().sort((a, b) => p.first[a] - p.first[b] || IX(a) - IX(b)); p.back = chron.some((s, i) => i && IX(s) < IX(chron[i - 1])); });
+    // groups
+    const grp = (f) => { const m = new Map(); J.forEach((p) => f(p).forEach((key) => { if (!m.has(key.id)) m.set(key.id, Object.assign(key, { ps: [] })); m.get(key.id).ps.push(p); })); return [...m.values()]; };
+    const links = grp((p) => p.seq.slice(1).map((b, j) => ({ id: p.entry + '|' + p.seq[j] + '|' + b, e: p.entry, a: p.seq[j], b })));
+    links.forEach((l) => { l.skip = IX(l.b) > IX(l.a) + 1; });
+    const stops = grp((p) => p.seq[p.seq.length - 1] === 'Masters' ? [] : [{ id: p.entry + '|' + p.seq[p.seq.length - 1], e: p.entry, s: p.seq[p.seq.length - 1] }]);
+    const starts = grp((p) => [{ id: p.entry, e: p.entry, s: p.entry }]);
+    const tot = Object.fromEntries(MAIN.map((s) => [s, J.filter((p) => s in p.first).length]));
+    // geometry: neutral level bars; inside each bar, top = arriving from the level below, then skips arriving from underneath, then new entrants;
+    // leaving: up one level at the top, skips from the bottom, then the grey "stopped" band at the very bottom
+    const W = 1000, nw = 14, colH = 300, k = colH / (d3.max(Object.values(tot)) || 1), top = 40;
+    const X = (i) => 70 + i * ((W - 150 - nw) / (MAIN.length - 1));
+    const node = Object.fromEntries(MAIN.map((s, i) => [s, { s, x: X(i), y: top + (colH - tot[s] * k) / 2, h: tot[s] * k }]));
+    const EO = (a, b) => IX(a.e) - IX(b.e);
+    links.forEach((l) => { l.t = l.ps.length * k; }); stops.forEach((t) => { t.t = t.ps.length * k; }); starts.forEach((t) => { t.t = t.ps.length * k; });
+    MAIN.forEach((s) => { const n = node[s]; let y = n.y;
+      links.filter((l) => l.b === s && !l.skip).sort(EO).forEach((l) => { l.t = l.ps.length * k; l.y1 = y; y += l.t; });
+      links.filter((l) => l.b === s && l.skip).sort((p, q) => IX(q.a) - IX(p.a) || EO(p, q)).forEach((l) => { l.t = l.ps.length * k; l.y1 = y; y += l.t; });
+      starts.filter((t) => t.s === s).forEach((t) => { t.t = t.ps.length * k; t.y = y; y += t.t; });
+      y = n.y;
+      links.filter((l) => l.a === s && !l.skip).sort(EO).forEach((l) => { l.y0 = y; y += l.t; });
+      links.filter((l) => l.a === s && l.skip).sort((p, q) => IX(p.b) - IX(q.b) || EO(p, q)).forEach((l) => { l.y0 = y; y += l.t; });
+      stops.filter((t) => t.s === s).sort(EO).forEach((t) => { t.t = t.ps.length * k; t.y = y; y += t.t; }); });
     const curve = d3.line().curve(d3.curveBumpX);
-    links.forEach((l) => { const a = node[l.a], b = node[l.b], ya = l.y0 + l.t / 2, yb = l.y1 + l.t / 2, xa = a.x + nw, xb = b.x;
-      if (l.kind === 'next') l.d = curve([[xa, ya], [xb, yb]]);
-      else if (l.kind === 'skip') { const ly = lane + l.t / 2; lane += l.t + 3; l.d = curve([[xa, ya], [xa + 34, ly], [xb - 34, ly], [xb, yb]]); }
-      else { const ly = upLane - l.t / 2; upLane -= l.t + 3; const xa2 = a.x, xb2 = b.x + nw; l.d = curve([[xa2, ya], [xa2 - 18, ly], [xb2 + 18, ly], [xb2, yb]]); } });
-    const H = Math.max(lane, bottom) + 30;
+    let lane = top + colH + 26;
+    links.filter((l) => l.skip).sort((p, q) => (IX(q.b) - IX(q.a)) - (IX(p.b) - IX(p.a)) || IX(p.a) - IX(q.a)).forEach((l) => { l.lane = lane + l.t / 2; lane += Math.max(l.t, 1.5) + 3; });
+    links.forEach((l) => { const xa = node[l.a].x + nw, xb = node[l.b].x, ya = l.y0 + l.t / 2, yb = l.y1 + l.t / 2;
+      l.d = l.skip ? curve([[xa, ya], [xa + 40, l.lane], [xb - 40, l.lane], [xb, yb]]) : curve([[xa, ya], [xb, yb]]); });
+    const H = lane + 16;
     const { box: b, svg } = svgBox(W, H);
-    MAIN.forEach((s, i) => svg.append('text').attr('x', X(i) + nw / 2).attr('y', 16).attr('text-anchor', 'middle').style('font-weight', 600).style('fill', css('--fg')).text(`${s} · ${node[s].tot}`));
-    if (skips.length) svg.append('text').attr('x', 6).attr('y', bottom + 2).style('fill', css('--muted')).style('font-size', '10px').text('skipped a level ↓');
-    if (downs.length) svg.append('text').attr('x', 6).attr('y', 30).style('fill', css('--muted')).style('font-size', '10px').text('back down a level ↑');
-    const gL = svg.append('g'), gS = svg.append('g'), gN = svg.append('g');
-    const why = (l) => l.kind === 'skip' ? `skipped ${MAIN.slice(IX(l.a) + 1, IX(l.b)).join(' and ')}` : l.kind === 'down' ? 'went back down a level' : 'next level up';
-    const flows = gL.selectAll('path').data(links).join('path').attr('class', 'flow').attr('d', (l) => l.d).attr('fill', 'none').attr('stroke', (l) => ECOL[l.e]).attr('stroke-width', (l) => Math.max(1, l.t)).attr('stroke-opacity', (l) => l.kind === 'next' ? 0.42 : 0.6).style('cursor', 'pointer')
-      .on('click', (ev, l) => open(ev, `${l.a} → ${l.b} (entered at ${l.e})`, `Players who entered GB at ${l.e} and went from ${l.a} to ${l.b}: ${why(l)}.`, l.ps));
-    onTip(flows, (l) => [`${l.a} → ${l.b}`, `${l.ps.length} player${l.ps.length === 1 ? '' : 's'} who entered at ${l.e}`, why(l), ...(l.ps.length <= 6 ? l.ps.map((p) => p.n) : []), CLICK]);
-    const tails = gS.selectAll('path').data(stops).join('path').attr('d', (t) => { const x = node[t.s].x + nw, y = t.y0 + t.t / 2; return curve([[x, y], [x + 26, y + 6]]); })
-      .attr('fill', 'none').attr('stroke', (t) => ECOL[t.e]).attr('stroke-width', (t) => Math.max(1, t.t)).attr('stroke-opacity', 0.14).style('cursor', 'pointer')
-      .on('click', (ev, t) => open(ev, `Stopped at ${t.s} (entered at ${t.e})`, `Players whose highest GB level so far is ${t.s}. Recent players may still go on.`, t.ps));
-    onTip(tails, (t) => [`${t.ps.length} went no further than ${t.s}`, `entered at ${t.e}`, CLICK]);
-    const sl = MAIN.flatMap((s) => MAIN.map((e) => slice[s][e]).filter((x) => x.ps.length));
-    const rects = gN.selectAll('rect').data(sl).join('rect').attr('x', (x) => x.x).attr('y', (x) => x.y).attr('width', nw).attr('height', (x) => Math.max(1, x.h)).attr('fill', (x) => ECOL[x.e]).attr('stroke', css('--panel')).attr('stroke-width', 0.5).style('cursor', 'pointer')
-      .on('click', (ev, x) => open(ev, `Reached ${x.s}, entered GB at ${x.e}`, null, x.ps));
-    onTip(rects, (x) => [`${x.s}: ${x.ps.length} player${x.ps.length === 1 ? '' : 's'}`, x.e === x.s ? 'started their GB pathway here' : `entered GB at ${x.e}`, CLICK]);
-    // highlight one player's route
-    const focus = (p) => { flows.attr('stroke-opacity', (l) => !p ? (l.kind === 'next' ? 0.42 : 0.6) : l.ps.includes(p) ? 0.95 : 0.05);
-      tails.attr('stroke-opacity', (t) => !p ? 0.14 : t.ps.includes(p) ? 0.6 : 0.03); rects.attr('opacity', (x) => !p || x.ps.includes(p) ? 1 : 0.2);
-      info.replaceChildren(...(p ? [h('b', null, p.n), ': ', p.seq.map((s) => `${s} ${p.first[s]}`).join(' → '), p.seq.length === 1 ? ' (one level so far)' : '', ' · ', h('a', { href: '#/p/' + enc(p.k) }, 'profile')] : [])); };
+    MAIN.forEach((s) => svg.append('text').attr('x', node[s].x + nw / 2).attr('y', 18).attr('text-anchor', 'middle').style('font-weight', 600).style('fill', css('--fg')).text(s));
+    MAIN.forEach((s) => svg.append('text').attr('x', node[s].x + nw / 2).attr('y', 32).attr('text-anchor', 'middle').style('fill', css('--muted')).style('font-size', '11px').text(tot[s] + ' players'));
+    if (links.some((l) => l.skip)) svg.append('text').attr('x', 4).attr('y', top + colH + 20).style('fill', css('--muted')).style('font-size', '11px').text('Skipped a level ⤵');
+    const gL = svg.append('g'), gT = svg.append('g'), gN = svg.append('g');
+    const why = (l) => l.skip ? `skipped ${MAIN.slice(IX(l.a) + 1, IX(l.b)).join(' and ')}` : 'up one level';
+    const flows = gL.selectAll('path').data(links).join('path').attr('d', (l) => l.d).attr('fill', 'none').attr('stroke', (l) => ECOL[l.e]).attr('stroke-width', (l) => Math.max(1.5, l.t)).attr('stroke-opacity', 0.55).style('cursor', 'pointer')
+      .on('click', (ev, l) => open(ev, `${l.a} → ${l.b}, entered GB at ${l.e}`, `Players who entered GB at ${l.e} and went from ${l.a} to ${l.b} (${why(l)}).`, l.ps));
+    onTip(flows, (l) => [`${l.a} → ${l.b} (${why(l)})`, `${l.ps.length} player${l.ps.length === 1 ? '' : 's'} who entered GB at ${l.e}`, ...(l.ps.length <= 6 ? l.ps.map((p) => p.n) : []), CLICK]);
+    // stopped: a solid grey band dropping out of the level, with its count
+    const stopG = gT.selectAll('g.stop').data(stops).join('g').attr('class', 'stop').style('cursor', 'pointer')
+      .on('click', (ev, t) => open(ev, `Went no further than ${t.s} (entered at ${t.e})`, `Players whose highest GB level is ${t.s}. Recent players may still go on.`, t.ps));
+    stopG.append('path').attr('d', (t) => { const x = node[t.s].x + nw, y = t.y + t.t / 2; return curve([[x, y], [x + 34, y + 10]]); }).attr('fill', 'none').attr('stroke', css('--axis')).attr('stroke-width', (t) => Math.max(1.5, t.t)).attr('stroke-opacity', 0.75);
+    stopG.append('rect').attr('x', (t) => node[t.s].x + nw + 34).attr('y', (t) => t.y + t.t / 2 + 10 - Math.max(1.5, t.t) / 2).attr('width', 3).attr('height', (t) => Math.max(1.5, t.t)).attr('fill', (t) => ECOL[t.e]);
+    MAIN.forEach((s) => { const ts = stops.filter((t) => t.s === s); if (!ts.length) return; const n = d3.sum(ts, (t) => t.ps.length), yb = d3.max(ts, (t) => t.y + t.t);
+      svg.append('text').attr('x', node[s].x + nw + 42).attr('y', yb + 12).style('fill', css('--muted')).style('font-size', '11px').text(`${n} stopped`); });
+    onTip(stopG, (t) => [`${t.ps.length} went no further than ${t.s}`, `entered GB at ${t.e}`, CLICK]);
+    // new entrants: a short coloured stub coming in from the left
+    const startG = gT.selectAll('path.start').data(starts).join('path').attr('class', 'start').attr('d', (t) => { const x = node[t.s].x, y = t.y + t.t / 2; return curve([[x - 30, y + 8], [x, y]]); })
+      .attr('fill', 'none').attr('stroke', (t) => ECOL[t.e]).attr('stroke-width', (t) => Math.max(1.5, t.t)).attr('stroke-opacity', 0.9).style('cursor', 'pointer')
+      .on('click', (ev, t) => open(ev, `Entered GB at ${t.s}`, `Players whose first (lowest) GB level was ${t.s}.`, t.ps));
+    onTip(startG, (t) => [`${t.ps.length} entered GB at ${t.s}`, CLICK]);
+    gN.selectAll('rect').data(MAIN.map((s) => node[s])).join('rect').attr('x', (n) => n.x).attr('y', (n) => n.y).attr('width', nw).attr('height', (n) => Math.max(1, n.h)).attr('rx', 2).attr('fill', css('--fg')).attr('fill-opacity', 0.82)
+      .style('cursor', 'pointer').on('click', (ev, n) => open(ev, `Everyone who played GB ${n.s}`, LAB[n.s], J.filter((p) => n.s in p.first)));
+    const focus = (p) => { flows.attr('stroke-opacity', (l) => !p ? 0.55 : l.ps.includes(p) ? 0.95 : 0.06); stopG.attr('opacity', (t) => !p || t.ps.includes(p) ? 1 : 0.1); startG.attr('stroke-opacity', (t) => !p ? 0.9 : t.ps.includes(p) ? 1 : 0.1);
+      jrows.attr('opacity', (r) => !p || r.ps.includes(p) ? 1 : 0.15);
+      info.replaceChildren(...(p ? [h('b', null, p.n), ': ', p.stages.slice().sort((a, c) => p.first[a] - p.first[c]).map((s) => `${s} ${p.first[s]}`).join(' → '), p.seq.length === 1 ? ' (one level so far)' : '', ' · ', h('a', { href: '#/p/' + enc(p.k) }, 'profile')] : [])); };
+    box.replaceChildren(b, legend(MAIN.map((s) => [`Entered GB at ${s}`, ECOL[s]]).concat([['Stopped (no higher level yet)', css('--axis')]])),
+      h('p', { class: 'note' }, 'Grey bars are the GB levels. Coloured bands keep the colour of the level a player entered at: short stubs on the left of a bar are new entrants, bands going right moved up one level, bands along the bottom skipped a level, and grey bands are where people stopped. Click anything for the players.'));
+    // journeys: one row per route
+    const routes = grp((p) => [{ id: p.seq.join('>'), seq: p.seq, e: p.entry }]).sort((a, c) => c.ps.length - a.ps.length);
+    const RW = 1000, rh = 24, colX = (i) => 40 + i * 70, barX = 40 + 4 * 70 + 50, RH = 34 + rh * routes.length;
+    const { box: jb, svg: js } = svgBox(RW, RH);
+    MAIN.forEach((s, i) => js.append('text').attr('x', colX(i)).attr('y', 14).attr('text-anchor', 'middle').style('font-weight', 600).style('fill', css('--fg')).text(s));
+    js.append('text').attr('x', barX).attr('y', 14).style('fill', css('--muted')).text('Players');
+    const mxr = d3.max(routes, (r) => r.ps.length) || 1, bx = d3.scaleLinear([0, mxr], [0, RW - barX - 60]);
+    const jrows = js.selectAll('g.jr').data(routes).join('g').attr('class', 'jr').attr('transform', (r, i) => `translate(0,${28 + i * rh})`).style('cursor', 'pointer')
+      .on('click', (ev, r) => open(ev, r.seq.join(' → '), r.seq.length === 1 ? `Played GB ${r.seq[0]} only.` : `Reached exactly these GB levels${r.seq.some((s, i) => i && IX(s) > IX(r.seq[i - 1]) + 1) ? ', skipping the ones in between' : ''}.`, r.ps));
+    jrows.append('rect').attr('x', 0).attr('y', 0).attr('width', RW).attr('height', rh).attr('fill', (r, i) => i % 2 ? 'transparent' : css('--bg')).attr('opacity', 0.6);
+    jrows.each(function (r) { const g = d3.select(this), c = ECOL[r.e], cy = rh / 2;
+      MAIN.forEach((s, i) => g.append('circle').attr('cx', colX(i)).attr('cy', cy).attr('r', 3).attr('fill', css('--grid')));
+      r.seq.slice(1).forEach((s, j) => { const a = IX(r.seq[j]), bb = IX(s); g.append('line').attr('x1', colX(a)).attr('x2', colX(bb)).attr('y1', cy).attr('y2', cy).attr('stroke', c).attr('stroke-width', 3).attr('stroke-dasharray', bb > a + 1 ? '5 4' : null); });
+      r.seq.forEach((s) => g.append('circle').attr('cx', colX(IX(s))).attr('cy', cy).attr('r', 6).attr('fill', c));
+      g.append('rect').attr('x', barX).attr('y', 5).attr('height', rh - 10).attr('width', Math.max(2, bx(r.ps.length))).attr('rx', 3).attr('fill', c).attr('opacity', 0.75);
+      g.append('text').attr('x', barX + bx(r.ps.length) + 6).attr('y', cy + 4).style('fill', css('--fg')).text(r.ps.length);
+      g.append('text').attr('x', RW - 4).attr('y', cy + 4).attr('text-anchor', 'end').style('fill', css('--muted')).style('font-size', '11px').text(r.seq.length > 1 && r.seq.some((s, i) => i && IX(s) > IX(r.seq[i - 1]) + 1) ? 'skipped a level' : ''); });
+    onTip(jrows, (r) => [r.seq.join(' → '), `${r.ps.length} player${r.ps.length === 1 ? '' : 's'}`, ...(r.ps.length <= 6 ? r.ps.map((p) => p.n) : []), CLICK]);
+    jbox.replaceChildren(jb, h('p', { class: 'note' }, 'Each row is one route through GB, with a dot for every level reached. A dashed line means levels were skipped. Click a row for the players.'));
     const byName = new Map(J.map((p) => [p.n.toLowerCase(), p]));
-    find.oninput = () => { const p = byName.get(find.value.trim().toLowerCase()); focus(p || null); };
+    find.oninput = () => focus(byName.get(find.value.trim().toLowerCase()) || null);
     dl.replaceChildren(...J.map((p) => h('option', { value: p.n })));
     focus(byName.get(find.value.trim().toLowerCase()) || null);
-    box.replaceChildren(b, legend(MAIN.map((s) => [`Entered GB at ${s}`, ECOL[s]])), h('p', { class: 'note' }, 'Each level is split by where players entered GB, and they keep that colour all the way through. Bands follow the order players actually played: straight bands go up one level, bands underneath skipped a level, bands over the top went back down, and the faint tails are where people stopped. Click anything for the players, or type a name to trace one route.'));
-    const beach = L.filter((p) => p.sq.some((x) => x[0] === 'Beach')), indoor = L.filter((p) => p.sq.some((x) => x[0] === 'Indoor')), oth = L.filter((p) => p.oth);
+    const beach = L.filter((p) => p.sq.some((x) => x[0] === 'Beach')), indoor = L.filter((p) => p.sq.some((x) => x[0] === 'Indoor')), oth = L.filter((p) => p.oth), back = J.filter((p) => p.back);
     const chip = (t, arr, note) => h('button', { class: 'btn', onclick: (ev) => open(ev, t, note, arr) }, `${t} (${arr.length})`);
-    side.replaceChildren(h('span', { class: 'muted' }, 'Also:'), chip('GB beach', beach, 'Players in a senior GB beach squad (beach masters count as Masters above).'), chip('GB indoor', indoor, 'Players in a GB indoor squad.'), chip('Played for another nation', oth, 'Players who also appear for another national team.'));
+    side.replaceChildren(h('span', { class: 'muted' }, 'Also:'), chip('Went back down a level', back, 'Players who played a lower GB level after a higher one (e.g. U24, then U20 the next year).'), chip('GB beach', beach, 'Players in a senior GB beach squad (beach masters count as Masters above).'), chip('GB indoor', indoor, 'Players in a GB indoor squad.'), chip('Played for another nation', oth, 'Players who also appear for another national team.'));
     const yth = J.filter((p) => 'U17' in p.first || 'U20' in p.first), ythS = yth.filter((p) => 'Senior' in p.first), sen = J.filter((p) => 'Senior' in p.first), senY = sen.filter((p) => 'U17' in p.first || 'U20' in p.first || 'U24' in p.first);
-    sumBox.replaceChildren(tiles([['Players', J.length], ['Youth (U17/U20) who reached Senior', `${ythS.length} of ${yth.length}`, pct(ythS.length / (yth.length || 1))], ['Senior players who came through U17/U20/U24', `${senY.length} of ${sen.length}`, pct(senY.length / (sen.length || 1))], ['Skipped at least one level', J.filter((p) => p.seq.some((s, i) => i && Math.abs(IX(s) - IX(p.seq[i - 1])) > 1)).length]]));
+    sumBox.replaceChildren(tiles([['Players', J.length], ['Youth (U17/U20) who reached Senior', `${ythS.length} of ${yth.length}`, pct(ythS.length / (yth.length || 1))], ['Senior players who came through U17/U20/U24', `${senY.length} of ${sen.length}`, pct(senY.length / (sen.length || 1))], ['Skipped at least one level', J.filter((p) => p.seq.some((s, i) => i && IX(s) > IX(p.seq[i - 1]) + 1)).length]]));
   };
   const dl = h('datalist', { id: 'pathnames' }), find = h('input', { type: 'search', list: 'pathnames', placeholder: 'Trace a player…', 'aria-label': 'Trace a player', class: 'pathfind' });
   draw();
@@ -679,6 +703,7 @@ ROUTES.pathway = async () => {
     h('select', { onchange: (e) => { st.div = e.target.value; draw(); } }, [['', 'All divisions'], ['Open', 'Played a GB Open squad'], ['Women', 'Played a GB Women’s squad'], ['Mixed', 'Played a GB Mixed squad']].map(([v, l]) => h('option', { value: v }, l))), find, dl);
   return [h('h1', null, 'GB pathway'), h('p', { class: 'sub' }, 'How players move up through GB squads: U17, U20, U24, Senior, then Masters. Built from every GB roster we have since 2010; rosters before about 2017 are incomplete, so early flows are undercounted.'),
     card(null, null, ctl, info, sumBox, box, side),
+    card('Every route through GB', 'The same players, one row per route, most common first. This is the clearest way to see who skipped levels and where people stopped.', jbox),
     card('Do youth players go on?', 'Players whose first GB squad was U17 or U20, grouped by when they were first capped: the share who later made a U24 and a senior squad. Recent groups haven’t had time to get there yet. Click a point for the players.', coh)];
 };
 async function capsTable() {
