@@ -178,3 +178,16 @@ body.gated > header, body.gated > main, body.gated > footer, body.gated > .back 
 .chartwide { overflow-x: auto; }
 .cyclegrid svg { min-width: 640px; }
 .cycsum { margin: 10px 0 0; padding-left: 18px; font-size: 13px; line-height: 1.6; }
+/* clubs list (Teams page, grouped) */
+.clublist { display: flex; flex-direction: column; gap: 4px; max-height: 46rem; overflow: auto; }
+.clubrow { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+.clubrow > summary, .clubrow.single { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding: 7px 10px; cursor: pointer; color: var(--fg); }
+.clubrow.single { text-decoration: none; }
+.clubrow.single:hover, .clubrow > summary:hover { background: var(--bg); }
+.clubrow > summary::marker { color: var(--muted); }
+.clubrow .cn { font-weight: 600; min-width: 0; }
+.clubrow .cm { color: var(--muted); font-size: 13px; flex: 1 1 auto; min-width: 0; }
+.clubrow .cm.warn { color: var(--c3); flex: 0 0 auto; }
+.clubrow .btn { margin-left: auto; padding: 2px 10px; font-size: 13px; }
+.clubrow[open] > summary { border-bottom: 1px solid var(--line); }
+.clubrow .tbox { padding: 4px 8px 8px; }
