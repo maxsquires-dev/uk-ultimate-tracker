@@ -168,4 +168,13 @@ body.gated > header, body.gated > main, body.gated > footer, body.gated > .back 
 .chip { display:inline-flex; align-items:center; gap:4px; padding:2px 8px; margin:2px; border:1px solid var(--line); border-radius:999px; font-size:12px; cursor:pointer; }
 .chip.on { background: color-mix(in srgb, var(--c0) 18%, transparent); border-color: var(--c0); }
 .mpctl { display: flex; gap: 2px; margin-left: 0; } .mpctl .chip { margin: 0; padding: 2px 7px; font-size: 11px; color: var(--fg); background: var(--bg); } .mpctl .chip.on { background: var(--c0); color: #fff; } @media (max-width: 760px) { .mpctl { order: 3; } }
-.mpnote { background: var(--panel2, #eef1f6); padding: 6px 10px; border-radius: 6px; }
+.mpnote { background: color-mix(in srgb, var(--uku-blue) 10%, transparent); padding: 6px 10px; border-radius: 6px; }
+.home-links { margin-bottom: 16px; }
+.tscroll { max-height: 70vh; overflow: auto; }
+.spark { width: 110px; display: inline-block; vertical-align: middle; }
+.spark svg { width: 110px !important; min-width: 0 !important; }
+.zoombar { margin-bottom: 6px; }
+.famseg { flex-wrap: wrap; margin-bottom: 12px; }
+.chartwide { overflow-x: auto; }
+.cyclegrid svg { min-width: 640px; }
+.cycsum { margin: 10px 0 0; padding-left: 18px; font-size: 13px; line-height: 1.6; }
