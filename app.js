@@ -151,6 +151,17 @@ function hbars(rows, o = {}) {
   return box;
 }
 /** donut: items [{label, v, color?, tip?, onclick?}] with a clickable legend; small slices fold into "Other" */
+function hbarsStack(rows, o = {}) {
+  const W = o.W || 1000, labW = o.labW || 300, rh = 26, H = rows.length * rh + 6;
+  const { box, svg } = svgBox(W, H); const x = d3.scaleLinear([0, 1], [labW, W - 10]);
+  rows.forEach((r, i) => { const y = i * rh + 3; let acc = 0;
+    svg.append('text').attr('x', labW - 8).attr('y', y + rh / 2 + 2).attr('text-anchor', 'end').style('fill', css('--fg')).style('font-size', '12px').text(r.label);
+    r.parts.forEach((p) => { if (!p.v) return; const x0 = x(acc), x1 = x(acc + p.v); acc += p.v;
+      const rect = svg.append('rect').attr('x', x0).attr('y', y).attr('width', Math.max(0, x1 - x0 - 1)).attr('height', rh - 6).attr('fill', p.color).style('cursor', p.onclick ? 'pointer' : null).on('click', (ev) => p.onclick && p.onclick(ev));
+      if (x1 - x0 > 30) svg.append('text').attr('x', (x0 + x1) / 2).attr('y', y + rh / 2 + 1).attr('text-anchor', 'middle').style('font-size', '10.5px').style('fill', '#fff').style('pointer-events', 'none').text(d3.format('.0%')(p.v));
+      onTip(rect, () => [r.label, `${p.lab}: ${p.n} (${d3.format('.0%')(p.v)})`, ...(p.onclick ? [CLICK] : [])]); }); });
+  return box;
+}
 function donut(items, o = {}) {
   const C = COL(), max = o.max || 8, W = o.W || 520, R = o.R || 92, H = Math.max(2 * R + 20, 0);
   let L = items.slice().sort((a, b) => b.v - a.v);
@@ -1440,6 +1451,18 @@ ROUTES.trends = async () => {
       h('p', { class: 'note' }, h('a', { href: 'https://ranking.ultimatefederation.eu/', target: '_blank', rel: 'noopener' }, 'Open the EUCS ranking ↗'))));
   }
   out.push(h('p', { class: 'note' }, 'Movement between clubs has its own page: ', h('a', { href: '#/moves' }, 'Moves →')));
+  // player trajectories: who is rising, who is established
+  { const DC = { Open: C[0], Women: C[3], Mixed: C[2] }; const st = { part: 'tr', div: '' }; const sb = h('div');
+    const parts = h('select', { onchange: (e) => { st.part = e.target.value; draw(); } }, [['tr', 'Trajectory (total)'], ['tri', 'Individual part only'], ['trt', 'Team part only']].map(([v, l]) => h('option', { value: v }, l)));
+    const dsel = h('select', { onchange: (e) => { st.div = e.target.value; draw(); } }, ['', 'Open', 'Women', 'Mixed'].map((d) => h('option', { value: d }, d || 'All divisions')));
+    const draw = () => { const P = I.players.filter((p) => p.tr != null && p.st != null && (!st.div || p.d === st.div) && mpPass(p.k));
+      const pts = P.map((p) => ({ x: p.st, y: p[st.part], color: DC[p.d] || C[7], go: '#/p/' + enc(p.k), tip: [p.n, `${p.t || ''} · ${p.d || ''}`, `Standing ${f0(p.st)} · Quality ${f0(p.q)}`, `Trajectory ${sgn1(p.tr)}/season (team ${sgn1(p.trt)}, individual ${sgn1(p.tri)})`, 'Click for the profile'] }));
+      const risers = P.slice().sort((a, b) => b[st.part] - a[st.part]).slice(0, 8);
+      sb.replaceChildren(h('div', { class: 'grid2' }, scatter(pts, { W: 620, H: 380, xLab: 'Standing (career) →', yLab: '↑ points per season', xDomain: [20, 90] }),
+        h('div', null, h('h3', null, 'Rising fastest'), table(['Player', 'Team', 'Standing', st.part === 'tr' ? 'Trajectory' : st.part === 'tri' ? 'Individual' : 'Team part'], risers.map((p) => ({ go: '#/p/' + enc(p.k), cells: [p.n, p.t, f0(p.st), sgn1(p[st.part])] })), { num: [2, 3] }))),
+        legend([['Open', C[0]], ['Women', C[3]], ['Mixed', C[2]]])); };
+    draw();
+    out.push(card('Player trajectories', 'Every player with 3+ scored seasons: how established they are (Standing, across) against how fast they are improving (Trajectory, up). Top right = established and still rising; top left = rising newer players; bottom right = established but past their peak. Switch to the individual part to take club moves out of it. Click a dot for the profile.', h('div', { class: 'controls' }, parts, dsel), sb)); }
   return out;
 };
 
@@ -1458,8 +1481,17 @@ ROUTES.moves = async () => {
   out.push(card('What comes before a move', 'How the direction of a move changes with the situation. Compare each row with “All moves”. Click a row for the moves.', table(['Situation', 'Moves', 'To a stronger team', 'To a weaker team'], M.context.map((c, i) => ({ onclick: (ev) => dr(ev, (D) => { const L = D.mv.filter((m) => m.dir && CTX[i](m));
       return { title: c.label, note: 'Moves where both teams’ levels are known.', sum: [['Moves', L.length], ['To a stronger team', L.filter((m) => m.dir === 'up').length], ['Similar', L.filter((m) => m.dir === 'level').length], ['To a weaker team', L.filter((m) => m.dir === 'down').length]], head: [...MVHEAD, 'Direction'], num: [1, 4, 5, 6, 7], rows: mvRows(D, L, { extra: (m) => [DIRW[m.dir]] }) }; }), cells: [c.label, c.n, pct(c.up), pct(c.down)] })), { num: [1, 2, 3] }),
     finding((() => { const g = M.context.find((c) => /GB/.test(c.label)), t3 = M.context.find((c) => /3\+/.test(c.label)); return `Players in a GB squad around the time of a move go to a stronger team ${pct(g.up)} of the time (vs ${pct(all.up)} overall). After 3+ seasons at one club, moves are more often down (${pct(t3.down)}), which fits players stepping back later in their time at a club. Small numbers in some rows, so treat these as signals.`; })(), 'flat')));
+  if (M.next_step) {
+    const NS = M.next_step, OK = [['stayed', 'Stayed at the club', C[0]], ['moved_up', 'Moved to a stronger team', C[2]], ['moved_level', 'Moved, similar level', C[7]], ['moved_down', 'Moved to a weaker team', C[4]], ['gap', 'Took a season out', C[6]], ['left', 'Left the sport', C[3]]];
+    const nsDrill = (row, o, lab) => (ev) => dr(ev, (D) => { const ks = (row.who || {})[o] || []; const pn2 = new Map(I.players.map((p) => [p.k, p]));
+      return { title: `${row.label}: ${lab.toLowerCase()}`, note: 'Season = the season before the change.', head: ['Player', 'Season', 'Team then', 'Latest team'], num: [1], rows: ks.map(([k, y, t]) => { const p = pn2.get(k) || { n: k }; return { cells: [playerLink(k, p.n), y, t, p.t || '—'], sv: [p.n, y, t, p.t] }; }) }; });
+    out.push(card('What happens next: stay, move or leave', 'Every player-season on a club roster from 2022, and what the same player did the next season, by situation. Compare each row with “All players”. 2025 → 2026 leavers are provisional. Click a coloured segment (leavers and big moves) for the players.',
+      hbarsStack(NS.map((r) => ({ label: `${r.label} (${r.n})`, parts: OK.map(([o, lab, c]) => ({ v: r.n ? r[o] / r.n : 0, n: r[o], color: c, lab, onclick: ['left', 'moved_up', 'moved_down'].includes(o) && r.who && r.who[o] ? nsDrill(r, o, lab) : null })) })), { W: 1000 }),
+      legend(OK.map(([, l, c]) => [l, c])),
+      finding((() => { const a = NS[0], g = NS.find((r) => /GB/.test(r.label)), lo = NS.find((r) => /under 30/.test(r.label)); return `Across everyone, ${pct(a.left / a.n)} of player-seasons are followed by leaving the sport. For players in a GB squad that drops to ${pct(g.left / g.n)}; for players with Quality under 30 it rises to ${pct(lo.left / lo.n)}.`; })(), 'flat')));
+  }
   out.push(h('div', { class: 'grid2' },
-    card('When in a stint players move', 'Seasons at the old team before moving. Click a bar for the moves.', barChart(M.tenure.map((t) => ({ x: t.seasons + (t.seasons >= 4 ? '+' : ''), s: t.seasons, up: t.up, level: t.level, down: t.down })), [{ key: 'up', name: 'Stronger', color: C[2] }, { key: 'level', name: 'Similar', color: C[7] }, { key: 'down', name: 'Weaker', color: C[4] }], { W: 520,
+    card('How long players stay before moving', 'Each move between seasons, grouped by how many seasons in a row the player had been at the club they left (1 = they moved after their first season there). Colours show whether they moved to a stronger, similar or weaker team. Click a bar for the moves.', barChart(M.tenure.map((t) => ({ x: t.seasons + (t.seasons >= 4 ? '+' : ''), s: t.seasons, up: t.up, level: t.level, down: t.down })), [{ key: 'up', name: 'Stronger', color: C[2] }, { key: 'level', name: 'Similar', color: C[7] }, { key: 'down', name: 'Weaker', color: C[4] }], { W: 520,
       onClick: (d, k, ev) => dr(ev, (D) => { const L = D.mv.filter((m) => m.ten === d.s && m.dir === k.key); return { title: `Moves after ${d.s} season${d.s > 1 ? 's' : ''} at the old team: ${k.name.toLowerCase()}`, head: MVHEAD, num: [1, 4, 5, 6, 7], rows: mvRows(D, L) }; }) }),
       finding(`Most moves (${pct(M.tenure[0] ? (M.tenure[0].up + M.tenure[0].level + M.tenure[0].down) / d3.sum(M.tenure, (t) => t.up + t.level + t.down) : null)}) happen after a single season, partly because the data only starts in 2022.`, 'flat')),
     null));
@@ -1542,12 +1574,15 @@ ROUTES.moves = async () => {
     const showYear = () => { const y = by.find((r) => r.year === +yrSel.value);
       box.replaceChildren(h('div', { class: 'grid2' },
         card('Highest-rated players not seen after ' + y.year, 'Ranked by their quality that season. Click for the profile.', y.top.length ? table(['Player', 'Team that season', 'Quality'], y.top.map((r) => ({ go: '#/p/' + enc(r.k), cells: [r.n, r.t, f0(r.q)] })), { num: [2] }) : h('p', { class: 'note' }, 'No rated players.')),
-        card('How long they had played', 'Seasons in the data (including pre-2022 history) up to and including ' + y.year + '. Click a bar for the players.', hbars(Object.entries(y.seasons).map(([s, n]) => ({ label: s === '5' ? '5+ seasons' : s + (s === '1' ? ' season' : ' seasons'), v: n, color: C[1],
-            onclick: lvDrill(`Leavers after ${y.year} with ${s === '5' ? '5+' : s} season${s === '1' ? '' : 's'} in the data`, (r) => r.y === y.year && Math.min(r.n, 5) === +s) })), { W: 520, fmt: (v) => v + ' players' }),
+        card('How long they had played', 'Seasons in the data (including pre-2022 history) up to and including ' + y.year + '. Click a slice for the players.', donut(Object.entries(y.seasons).map(([s_, n], i) => ({ label: s_ === '5' ? '5+ seasons' : s_ + (s_ === '1' ? ' season' : ' seasons'), v: n, color: COL()[i % 8],
+            onclick: lvDrill(`Leavers after ${y.year} with ${s_ === '5' ? '5+' : s_} season${s_ === '1' ? '' : 's'} in the data`, (r) => r.y === y.year && Math.min(r.n, 5) === +s_) })), { W: 520, R: 86, centreLab: 'leavers' }),
           finding(`${pct((y.seasons['1'] || 0) / y.left)} of ${y.year}’s leavers had only one season in the data: most drop-off is players trying club ultimate for a year.`, 'flat')))); };
     yrSel.onchange = showYear; showYear();
     out.push(h('div', { class: 'controls' }, h('span', { class: 'muted' }, 'Season:'), yrSel), box);
-    out.push(card('Squads that lost the most players to the sport', 'Players whose last season in the data was with this team. Click a row for the players.', table(['Team', 'Season', 'Players not seen again'], L.teams.map((t) => ({ onclick: lvDrill(`${t.team}: players not seen after ${t.year}`, (r) => r.t === t.team && r.y === t.year, t.year === last.year ? 'Provisional.' : null), cells: [t.team, t.year + (t.year === last.year ? ' (provisional)' : ''), t.n] })), { num: [1, 2] })));
+    { const TL = L.team_loss_by_year || {}; const ys = Object.keys(TL).sort().slice(-4);
+      out.push(card('Squads that lost the most players to the sport', 'Each season: the team every leaver was on in their last season in the data. One ring per season, the most recent first (the latest is provisional: some will reappear). Click a slice for the players.',
+        h('div', { class: 'grid2' }, ys.reverse().map((y) => { const items = TL[y] || [];
+          return h('div', null, h('h3', null, `After ${y}${+y === last.year ? ' (provisional)' : ''}: ${d3.sum(items, (d) => d[1])} players`), donut(items.map(([t, n], i) => ({ label: t, v: n, color: COL()[i % 8], onclick: lvDrill(`${t}: players not seen after ${y}`, (r) => r.t === t && r.y === +y, +y === last.year ? 'Provisional.' : null) })), { W: 520, R: 80, max: 9, centreLab: 'leavers', otherClick: (ev, rest) => lvDrill(`Other teams: players not seen after ${y}`, (r) => r.y === +y && rest.some((d) => d.label === r.t))(ev) })); })))); }
     const H = L.history;
     const BAND = { '2010–13': [2010, 2013], '2014–17': [2014, 2017], '2018–21': [2018, 2021] };
     const hpRows = (D, X) => X.slice().sort((a, b) => b.l - a.l || b.n - a.n).map((r) => { const w = D.who(r.p); return { cells: [pcell(w), r.f, r.l, r.t || '—', r.n, r.l >= 2022 ? 'yes' : ''], sv: [w.n, r.f, r.l, r.t, r.n, r.l >= 2022 ? 1 : 0] }; });
