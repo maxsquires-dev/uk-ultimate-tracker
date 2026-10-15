@@ -832,7 +832,7 @@ ROUTES.gb = async () => {
   const cycleGrid = (rows) => {
     const cols = [...new Set(rows.flatMap((r) => r.cyc.map((c) => String(c[0]))))].sort((a, b) => startOf(a) - startOf(b));
     const labW = 150, cw = 104, rh = 58, W = labW + cols.length * cw + 8, H = 30 + rows.length * rh;
-    const { box, svg } = svgBox(W, H); box.classList.add('cyclegrid');
+    const { box, svg } = svgBox(W, H); box.classList.add('cyclegrid'); box.style.maxWidth = (W * 1.15) + 'px';
     cols.forEach((c, j) => svg.append('text').attr('x', labW + j * cw + cw / 2).attr('y', 16).attr('text-anchor', 'middle').style('fill', css('--fg')).style('font-weight', 600).text(c));
     rows.forEach((r, i) => { const y = 26 + i * rh;
       svg.append('text').attr('x', labW - 10).attr('y', y + rh / 2 + 4).attr('text-anchor', 'end').style('fill', css('--fg')).style('font-weight', 600).style('cursor', 'pointer').text(r.label).on('click', () => { location.hash = '#/gc/' + enc(r.id); });
@@ -843,18 +843,19 @@ ROUTES.gb = async () => {
         const [, e, w, n] = cy; const dot = (cx, p, lab) => { g.append('circle').attr('cx', cx).attr('cy', y + rh / 2 - 6).attr('r', 12).attr('fill', MEDAL(p) || css('--panel')).attr('stroke', p ? (MEDAL(p) ? 'none' : css('--axis')) : css('--grid')).attr('stroke-dasharray', p ? null : '2 2');
           g.append('text').attr('x', cx).attr('y', y + rh / 2 - 2).attr('text-anchor', 'middle').style('font-size', '11px').style('font-weight', 700).style('fill', MEDAL(p) ? '#222' : css('--fg')).text(p ?? '–');
           g.append('text').attr('x', cx).attr('y', y + rh - 10).attr('text-anchor', 'middle').style('font-size', '9px').style('fill', css('--muted')).text(lab); };
-        if (e !== null && e !== undefined || r.paired) dot(x0 + cw / 2 - 20, e, 'Euros');
-        dot(r.paired || (e !== null && e !== undefined) ? x0 + cw / 2 + 20 : x0 + cw / 2, w, r.paired || e != null ? 'Worlds' : 'Final');
-        onTip(g.select('rect'), () => [`${r.label} · ${c} cycle`, `Euros: ${e ? ord(e) : '—'} · Worlds: ${w ? ord(w) : '—'}`, `${n} players across the cycle`, CLICK]); }); });
+        if (r.paired) { dot(x0 + cw / 2 - 20, e, 'Euros'); dot(x0 + cw / 2 + 20, w, 'Worlds'); }
+        else dot(x0 + cw / 2, e ?? w, r.single);
+        onTip(g.select('rect'), () => r.paired ? [`${r.label} · ${c} cycle`, `Euros: ${e ? ord(e) : '—'} · Worlds: ${w ? ord(w) : '—'}`, `${n} players across the cycle`, CLICK] : [`${r.label} · ${r.single} ${c}`, `Finish: ${(e ?? w) ? ord(e ?? w) : '—'}`, `${n} players`, CLICK]); }); });
     return box; };
   const draw = () => {
-    const rows = (I.gbc || []).filter((c) => c.fam === st.fam).map((c) => ({ id: c.id, label: c.n.replace(/^GB (U\d+ |Beach |Indoor |World Games )?/, '').replace(/^Senior /, ''), cyc: c.cyc, paired: c.lines.length > 1 }))
+    const rows = (I.gbc || []).filter((c) => c.fam === st.fam).map((c) => ({ id: c.id, label: c.n.replace(/^GB (U\d+ |Beach |Indoor |World Games )?/, '').replace(/^Senior /, ''), cyc: c.cyc, paired: c.lines.length > 1, single: /World Games/.test(c.n) ? 'World Games' : /Indoor/.test(c.n) ? 'Indoor Euros' : /U17/.test(c.n) ? 'U17 Euros' : /U24/.test(c.n) ? 'U24 Worlds' : /Beach/.test(c.n) ? (c.lines[0].includes('euro') ? 'Euro Beach' : 'Beach Worlds') : /Master/.test(c.n) ? (c.lines[0].includes('euro') ? 'Euro Masters' : 'Masters Worlds') : 'Euros' }))
       .sort((a, b) => ['Open', 'Women', 'Mixed'].indexOf(a.label) - ['Open', 'Women', 'Mixed'].indexOf(b.label) || a.label.localeCompare(b.label));
     // how each cycle went across the divisions
     const cols = [...new Set(rows.flatMap((r) => r.cyc.map((c) => String(c[0]))))].sort((a, b) => startOf(a) - startOf(b));
     const summ = cols.slice(-4).reverse().map((c) => { const xs = rows.map((r) => [r.label, r.cyc.find((x) => String(x[0]) === c)]).filter(([, x]) => x); const med = xs.filter(([, x]) => (x[1] && x[1] <= 3) || (x[2] && x[2] <= 3));
       return h('li', null, h('b', null, c + ': '), xs.map(([l, x]) => `${l} ${[x[1], x[2]].filter((v) => v != null).map(ord).join(' / ') || '—'}`).join(' · '), med.length ? h('span', { class: 'muted' }, ` — medals for ${med.map(([l]) => l).join(', ')}`) : ''); });
-    cbox.replaceChildren(rows.length ? h('div', { class: 'chartwide' }, cycleGrid(rows)) : h('p', { class: 'note' }, 'No cycles here.'), rows.length ? h('ul', { class: 'cycsum' }, summ) : null);
+    const single = rows.length && rows.every((r) => !r.paired);
+    cbox.replaceChildren(...[single ? h('p', { class: 'note' }, `${rows[0].single} is a single tournament, not a Euros + Worlds cycle: each column is one edition.`) : null, rows.length ? h('div', { class: 'chartwide' }, cycleGrid(rows)) : h('p', { class: 'note' }, 'No cycles here.'), rows.length ? h('ul', { class: 'cycsum' }, summ) : null].filter(Boolean));
     const lines = I.gb.filter((g) => { const n = g.n; return st.fam === 'Senior' ? /WUGC|EUC/.test(n) && !/U\d|Beach|Master|Indoor/.test(n) : st.fam === 'World Games' ? /World Games/.test(n) : st.fam === 'U20' ? /U20/.test(n) : st.fam === 'U17' ? /U17/.test(n) : st.fam === 'U24' ? /U24/.test(n) : st.fam === 'Masters' ? /Master/.test(n) && !/Beach/.test(n) : st.fam === 'Beach' ? /Beach/.test(n) : /Indoor/.test(n); });
     const years = [...new Set(lines.flatMap((g) => g.ed.map((e) => e[0])))].sort((a, b) => a - b);
     ybox.replaceChildren(lines.length ? medalGrid(lines.map((g) => ({ label: g.n.replace(/^GB /, ''), go: '#/g/' + enc(g.id), cells: Object.fromEntries(g.ed.map(([y, p]) => [y, { place: p, go: '#/g/' + enc(g.id) + '/' + y, tip: [g.n + ' ' + y, p ? ord(p) : 'no placing'] }])) })), years, { labW: 210 }) : h('p', { class: 'note' }, 'No squads.'));
