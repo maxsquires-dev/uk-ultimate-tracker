@@ -276,7 +276,7 @@ async function route() {
   untip();
   const [_, view = '', ...rest] = location.hash.replace(/^#/, '').split('/');
   const arg = rest.length ? decodeURIComponent(rest.join('/')) : null;
-  document.querySelectorAll('#nav a').forEach((a) => a.classList.toggle('on', a.getAttribute('href').split('/')[1] === ({ p: 'players', tree: 'players', t: 'teams', c: 'teams', g: 'gb', gc: 'gb', pathway: 'gb', programme: 'gb', e: 'events' }[view] || view)));
+  document.querySelectorAll('#nav a').forEach((a) => a.classList.toggle('on', a.getAttribute('href').split('/')[1] === ({ p: 'players', tree: 'players', t: 'teams', c: 'teams', u: 'uni', g: 'gb', gc: 'gb', pathway: 'gb', programme: 'gb', e: 'events' }[view] || view)));
   const fn = ROUTES[view] || ROUTES[''];
   VIEW.replaceChildren(h('p', { class: 'loading' }, 'Loading…'));
   try { const out = await fn(arg); VIEW.replaceChildren(...[out].flat().filter(Boolean)); } catch (e) { console.error(e); VIEW.replaceChildren(card('Something went wrong', String(e.message || e))); }
@@ -1556,6 +1556,69 @@ ROUTES.findings = async () => {
         h('li', null, h('b', null, 'One-event players: '), 'half are never seen again. Ask at the event, not after.'),
         h('li', null, h('b', null, 'Moved to a weaker team: '), 'a quarter are gone the next season, against a tenth after a move up. Ask whether the move was the first step out or a way to keep playing.'),
         h('li', null, h('b', null, 'Division switchers: '), 'Open → Mixed and Mixed → Women both come with a Quality jump and high retention. Ask what made the switch work.')))];
+};
+// ---------- universities (UKU / BUCS university events, from the published schedule sheets) ----------
+const UCOMP = [['Indoor', 'Mixed'], ['Indoor', 'Men'], ['Indoor', 'Women'], ['Outdoor', 'Mixed'], ['Outdoor', 'Men'], ['Outdoor', 'Women'], ['Beach', 'Mixed']];
+const uFinish = (r) => r[3] === 'Nationals' ? `${r[1] === 'Indoor' ? 'Nats ' : ''}${r[4].replace('Div ', 'D')} ${ord(r[6])}${r[7] ? ' / ' + r[7] : ''}` : `Regionals ${ord(r[6])}${r[7] ? ' / ' + r[7] : ''}${r[5] ? ' · ' + r[5] : ''}`;
+function uBest(rs) {   // best finish among a list of result rows: nationals Div 1 > Div 2 > Div 3 > regionals, then rank
+  const key = (r) => (r[3] === 'Nationals' ? (+r[4].slice(-1)) * 1000 : 9000) + r[6];
+  return rs.slice().sort((a, b) => key(a) - key(b))[0];
+}
+const uMedal = (r) => r && r[3] === 'Nationals' && r[4] === 'Div 1' && r[6] <= 3 ? MEDAL(r[6]) : null;
+ROUTES.uni = async () => {
+  const U = await getJSON('uni.json'); const C = COL(); const S = U.seasons, last = S[S.length - 1];
+  const bys = U.by_season;
+  const out = [h('h1', null, 'Universities'), h('p', { class: 'sub' }, `University ultimate from the UKU / BUCS event schedules: indoor regionals and nationals (Mixed, Men’s, Women’s, Div 1 and Div 2), outdoor nationals (Championship, Trophy, Shield), Mixed outdoor and beach, ${S[0]} to ${last}. ${U.coverage.results} team finishes from ${U.coverage.sheets} published schedule sheets.`),
+    h('p', { class: 'mpnote' }, 'Teams only, no players: BUCS and UKU university rosters are not published. UKU collects them through JustGo for every university nationals, so a roster export from UKU would link university players to the club data (see Findings → questions we cannot answer yet).')];
+  const L = bys[bys.length - 1];
+  out.push(tiles([['Universities ' + last, L.unis, 'with at least one team at a UKU / BUCS event'], ['Team entries ' + last, L.teams, 'each team counted once per competition'], ['Indoor teams ' + last, (L['Indoor|Mixed'] || 0) + (L['Indoor|Men'] || 0) + (L['Indoor|Women'] || 0), `Mixed ${L['Indoor|Mixed'] || 0} · Men ${L['Indoor|Men'] || 0} · Women ${L['Indoor|Women'] || 0}`], ['National titles', U.champs.length, 'Div 1 national champions in the data']]));
+  out.push(card('How many university teams play', 'Distinct teams at each season’s events (indoor counts every team entered at regionals; outdoor counts teams at nationals). 2021-22 indoor is missing: no schedules were published for that season.',
+    barChart(bys.map((b) => ({ x: b.s, mx: b['Indoor|Mixed'], mn: b['Indoor|Men'], wo: b['Indoor|Women'] })), [{ key: 'mx', name: 'Indoor Mixed', color: C[0] }, { key: 'mn', name: 'Indoor Men', color: C[1] }, { key: 'wo', name: 'Indoor Women', color: C[2] }], { W: 1000, H: 240 })));
+  // champions grid
+  const ch = new Map(U.champs.map((c) => [c[0] + '|' + c[1] + '|' + c[2], c]));
+  const uid = new Map(U.unis.map((u) => [u.n, u.id]));
+  out.push(card('National champions', 'Div 1 winners by season and competition. Click a university for its page.',
+    table(['Season', ...UCOMP.map(([f, d]) => `${f} ${d}`)], S.slice().reverse().map((s) => ({ cells: [s, ...UCOMP.map(([f, d]) => { const c = ch.get(s + '|' + f + '|' + d); return c ? h('a', { href: '#/u/' + enc(uid.get(c[4])) }, c[3]) : '—'; })] })))));
+  // strength table
+  const st = { q: '', d: 'all' }; const box = h('div');
+  const sval = (u, s) => st.d === 'all' ? u.strength[s] : (u.best[s] || {})[st.d];
+  const draw = () => { const rows = U.unis.filter((u) => !st.q || u.n.toLowerCase().includes(st.q)).map((u) => ({ u, v: sval(u, last) })).sort((a, b) => (b.v ?? -1) - (a.v ?? -1) || a.u.n.localeCompare(b.u.n));
+    box.replaceChildren(table(['#', 'University', 'Strength ' + last, 'Trend', 'Team entries ' + last, 'Divisions ' + last, 'Titles', 'Seasons'], rows.map(({ u, v }, i) => ({ go: '#/u/' + enc(u.id), cells: [v == null ? '—' : i + 1, h('b', null, u.n), v == null ? '—' : f0(v),
+      (() => { const pts = S.map((s) => [s, sval(u, s)]).filter((p) => p[1] != null); if (pts.length < 2) return ''; const el = h('span', { class: 'spark' }); const W = 110, H = 22, x = d3.scalePoint(S, [3, W - 3]), y = d3.scaleLinear([0, 100], [H - 3, 3]); const sv = d3.select(el).append('svg').attr('viewBox', `0 0 ${W} ${H}`); sv.append('path').attr('d', d3.line().x((p) => x(p[0])).y((p) => y(p[1]))(pts)).attr('fill', 'none').attr('stroke', C[0]).attr('stroke-width', 1.6); el.setAttribute('data-tip', JSON.stringify([u.n, ...pts.map((p) => `${p[0]}: ${f0(p[1])}`)])); return el; })(),
+      u.teams_by_season[last] ?? '—', (u.divs_last || []).join(', ') || '—', u.titles.length || '—', u.seasons] })), { num: [0, 2, 4, 6, 7], max: '40rem' })); };
+  draw();
+  out.push(card('University programme strength', 'Strength (0–100) ranks every indoor team in the country each season: Div 1 nationals in finishing order, then Div 2 nationals, then teams that only played regionals, placed by how far down their region they finished (an estimate). A university’s score in a division is its best team’s score; the overall score averages Mixed, Men’s and Women’s, counting 0 for a division with no team, so it rewards a programme that fields strong teams across all three.',
+    h('div', { class: 'controls' }, h('input', { type: 'search', placeholder: 'Filter universities', oninput: (e) => { st.q = e.target.value.trim().toLowerCase(); draw(); } }),
+      h('div', { class: 'seg' }, ...[['all', 'All three divisions'], ['Mixed', 'Mixed'], ['Men', 'Men’s'], ['Women', 'Women’s']].map(([k, l]) => h('button', { class: k === st.d ? 'on' : null, onclick: (e) => { st.d = k; e.target.parentNode.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === e.target)); draw(); } }, l)))), box));
+  // depth: most teams
+  const deep = U.unis.map((u) => ({ n: u.n, id: u.id, v: u.teams_by_season[last] || 0 })).sort((a, b) => b.v - a.v).slice(0, 15);
+  out.push(h('div', { class: 'grid2' },
+    card('Biggest programmes ' + last, 'Team entries this season across all university competitions (a 2nd or 3rd team counts separately). A rough proxy for how many students play; real numbers need membership data.',
+      hbars(deep.map((d) => ({ label: d.n, v: d.v, go: '#/u/' + enc(d.id), tip: [d.n, d.v + ' team entries in ' + last] })), { W: 520, labW: 150 })),
+    card('What is and is not here', null, h('ul', null,
+      h('li', null, 'Seasons 2022-23 to 2025-26 complete for indoor regionals and nationals; outdoor nationals 2021-22 to 2025-26; Mixed outdoor from 2023-24; beach 2025-26.'),
+      h('li', null, '2021-22 indoor and 2022-23 Mixed outdoor: only winners posts exist, no schedules, so they are left out.'),
+      h('li', null, 'Earlier seasons (before 2021) are not on the current UKU site.'),
+      h('li', null, `${U.n_games} scored games are in the sheets too; a game-score rating for university teams is a next step.`),
+      h('li', null, 'No player names anywhere public. The JustGo roster export would connect these teams to players and to the club game.')))));
+  return out;
+};
+ROUTES.u = async (id) => {
+  const U = await getJSON('uni.json'); const C = COL(); const u = U.unis.find((x) => x.id === id); if (!u) throw new Error('University not found');
+  const S = U.seasons, last = S[S.length - 1];
+  const out = [h('h1', null, u.n), h('p', { class: 'sub' }, `University ultimate · ${u.seasons} season${u.seasons === 1 ? '' : 's'} in the data · ${u.titles.length} national title${u.titles.length === 1 ? '' : 's'}`),
+    tiles([['Strength ' + last, f0(u.strength[last]), 'all three divisions (0–100)'], ['Team entries ' + last, u.teams_by_season[last] ?? '—', 'each team once per competition'], ['Divisions ' + last, (u.divs_last || []).join(', ') || '—'], ['National titles', u.titles.length, u.titles.map((t) => `${t[0]} ${t[1]} ${t[2]}`).join(', ') || 'none in the data']])];
+  out.push(card('Strength over time', 'Best team’s national standing each season by division (0–100; see the Universities page for how it is built), with the three-division average.',
+    lineChart([{ name: 'All three (average)', color: C[7], w: 3, pts: S.filter((s) => u.strength[s] != null).map((s) => ({ x: s, y: u.strength[s], tip: [u.n + ' ' + s, 'average ' + f0(u.strength[s])] })) },
+      ...['Mixed', 'Men', 'Women'].map((d, i) => ({ name: d, color: C[i], pts: S.filter((s) => (u.best[s] || {})[d] != null).map((s) => ({ x: s, y: u.best[s][d], tip: [`${u.n} ${d} ${s}`, f0(u.best[s][d])] })) }))].filter((x) => x.pts.length), { W: 1000, H: 260, yDomain: [0, 100], legend: true, xs: S })));
+  // grid of best finishes
+  const cells = (f, d) => S.map((s) => { const rs = u.res.filter((r) => r[0] === s && r[1] === f && r[2] === d); const b = uBest(rs); if (!b) return '—'; const col = uMedal(b);
+    return h('span', { class: col ? 'medal' : null, style: col ? `background:${col};color:#1b1b1b;padding:0 6px;border-radius:9px` : null, 'data-tip': JSON.stringify([`${u.n} · ${f} ${d} · ${s}`, ...rs.map((r) => `${r[8]}: ${uFinish(r)}`)]) }, uFinish(b) + (rs.length > 1 ? ` (+${new Set(rs.map((r) => r[8])).size - 1} team${new Set(rs.map((r) => r[8])).size > 2 ? 's' : ''})` : '')); });
+  out.push(card('Best finish each season', 'Best team in each competition, with how many other teams the university entered. Gold, silver and bronze mark national podiums. Hover for every team’s result.',
+    table(['Competition', ...S], UCOMP.filter(([f, d]) => u.res.some((r) => r[1] === f && r[2] === d)).map(([f, d]) => ({ cells: [`${f} ${d}`, ...cells(f, d)] })))));
+  out.push(card('Every result', null, table(['Season', 'Competition', 'Stage', 'Team', 'Finish'], u.res.slice().reverse().map((r) => ({ cells: [r[0], `${r[1]} ${r[2]}`, r[3] === 'Nationals' ? 'Nationals ' + r[4] : 'Regionals' + (r[5] ? ' (' + r[5] + ')' : ''), r[8], `${ord(r[6])}${r[7] ? ' of ' + r[7] : ''}`] })), { num: [], max: '32rem' })));
+  out.push(h('p', { class: 'note' }, 'Players are not linked: university rosters are held by UKU in JustGo, not published. ', h('a', { href: '#/uni' }, 'All universities →')));
+  return out;
 };
 ROUTES.trends = async () => {
   const T = await getJSON('trends.json'); const I = await index(); const C = COL(); const out = [h('h1', null, 'Trends'), h('p', { class: 'sub' }, 'What’s changing across UK club ultimate. Each chart comes with a plain reading of what it shows and how far to trust it. Click any bar, point or cell to see the players behind it.')];
