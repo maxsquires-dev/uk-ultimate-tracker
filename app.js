@@ -145,7 +145,7 @@ function hbars(rows, o = {}) {
   const { box, svg } = svgBox(W, H);
   const x = d3.scaleLinear([Math.min(0, mn), mx], [labW + 6, W - 40]);
   rows.forEach((r, i) => { const g = svg.append('g').attr('transform', `translate(0,${i * rh + 4})`).style('cursor', r.go || r.onclick ? 'pointer' : null).on('click', (ev) => { if (r.onclick) r.onclick(ev); else if (r.go) location.hash = r.go; });
-    g.append('text').attr('x', labW).attr('y', 13).attr('text-anchor', 'end').style('fill', css('--fg')).text(r.label.length > 28 ? r.label.slice(0, 27) + '…' : r.label);
+    g.append('text').attr('x', labW).attr('y', 13).attr('text-anchor', 'end').style('fill', css('--fg')).text(r.label.length > (o.maxLab || 28) ? r.label.slice(0, (o.maxLab || 28) - 1) + '…' : r.label);
     onTip(g.append('rect').attr('x', Math.min(x(0), x(r.v))).attr('y', 3).attr('width', Math.max(2, Math.abs(x(r.v) - x(0)))).attr('height', 13).attr('rx', 3).attr('fill', r.color || COL()[0]), () => [...(r.tip || [r.label, String(r.v)]), ...(r.onclick ? [CLICK] : [])]);
     g.append('text').attr('x', r.v >= 0 ? x(r.v) + 4 : x(0) + 4).attr('y', 13).attr('text-anchor', 'start').text(o.fmt ? o.fmt(r.v) : r.v); });
   return box;
@@ -867,6 +867,8 @@ ROUTES.c = async (id) => {
       let st0 = seen.length - 1; while (st0 > 0 && seen[st0] - seen[st0 - 1] <= 2 && seen.length - st0 < 8) st0--; fromSel.value = seen[st0];
       const drawFlow = () => { const yrs = seen.filter((y) => y >= +fromSel.value); flowBox.replaceChildren(squadFlow(core.map((r) => ({ ...r, ys: r.ys.filter((y) => yrs.includes(y)) })).filter((r) => r.ys.length), yrs, { index: IX })); };
       drawFlow();
+      const FD = await getJSON('findings.json').catch(() => null); const lg = FD && FD.base && FD.base.retention ? FD.base.retention : null; const lastP = pairs[pairs.length - 1];
+      if (lg && lastP) out.push(tiles([[`Back at the club, ${lastP.a} → ${lastP.y}`, pct(lastP.back / lastP.on), `${lastP.back} of ${lastP.on} players (any team of the club)`], ['Back on the same team', pct(lastP.same / lastP.on), 'stricter, team-level view'], ['League, all clubs', pct(lg.All), `club players from ${FD.base.lists_from} seen again anywhere`], ...['Open', 'Mixed', 'Women'].filter((d) => lg[d] != null && S.some((s) => s.d === d)).map((d) => [`League, ${d}`, pct(lg[d]), 'same season, that division'])]));
       out.push(card('Club retention: who stays at the club', 'Retention counted at club level: a player who moves from the second team to the first (or to the masters side) has stayed. The dashed line is the stricter team-level view (back on the same team). One-event pickups are left out. Seasons before 2022 come from European/world-event squads and any club lists we hold, so treat them as rough.',
         lineChart([{ name: 'Back at the club (any team)', color: C[0], w: 2.5, pts: pairs.map((d) => ({ x: d.y, y: d.on ? d.back / d.on : null, tip: [`${d.a} → ${d.y}`, `${d.back} of ${d.on} back at ${c.n}`] })) },
           { name: 'Back on the same team', color: C[7], w: 2, dash: '5 3', pts: pairs.map((d) => ({ x: d.y, y: d.on ? d.same / d.on : null, tip: [`${d.a} → ${d.y}`, `${d.same} of ${d.on} back on the same team`] })) }], { W: 1000, H: 240, yDomain: [0, 1], yFmt: d3.format('.0%'), legend: true })));
@@ -1507,6 +1509,54 @@ function scatter(pts, o = {}) {
   return box;
 }
 const change = (a, b) => b == null || a == null ? null : b - a;
+// ---------- findings: what the data can and cannot say ----------
+const GRADE = { strong: ['Strong', 'large n, clear gap, survives the obvious split'], suggestive: ['Suggestive', 'clear gap but small n or an obvious selection story'], weak: ['Weak', 'visible, but could be noise or selection'] };
+function findingChart(ch, C) {
+  const pf = (v) => v == null ? '—' : d3.format('.0%')(v);
+  const fmtv = ch.yfmt === 'pct' ? pf : (v) => v == null ? '—' : d3.format('.1f')(v);
+  if (ch.type === 'lines') return lineChart(ch.series.map((s, i) => ({ name: s.name, color: C[i % 8], w: s.w || 2, dash: s.dash ? '5 3' : null, pts: s.pts.filter((p) => p[1] != null).map((p) => ({ x: p[0], y: p[1], tip: [s.name + ' · ' + p[0], fmtv(p[1]) + (p[2] ? ` (n=${p[2]})` : '')] })) })), { W: 1000, H: 300, yDomain: ch.yfmt === 'pct' ? [0, 1] : null, yFmt: ch.yfmt === 'pct' ? d3.format('.0%') : null, legend: true, xLabel: ch.xlabel });
+  if (ch.type === 'bars') return barChart(ch.rows.map((r) => Object.assign({ x: r.x }, ...ch.keys.map((k) => ({ [k.key]: r[k.key] })), { tip: r.n ? `n=${r.n}` : null })), ch.keys.map((k, i) => ({ key: k.key, name: k.name, color: C[i % 8] })), { W: 1000, H: 260, yFmt: ch.yfmt === 'pct' ? d3.format('.0%') : null, vFmt: ch.yfmt === 'pct' ? pf : null, stacked: false });
+  if (ch.type === 'grouped') { const box = h('div', { class: ch.keys.length > 2 ? 'grid3' : 'grid2' }); ch.keys.forEach((k, i) => box.append(h('div', null, h('h3', null, k.name), barChart(ch.rows.map((r) => ({ x: r.x, v: r[k.key], tip: r.n ? `n=${(r.n || {})[k.key] ?? '—'}` : null })), [{ key: 'v', name: k.name, color: C[i % 8] }], { W: ch.keys.length > 2 ? 330 : 480, H: 220, yFmt: ch.yfmt === 'pct' ? d3.format('.0%') : null, vFmt: ch.yfmt === 'pct' ? pf : null })))); return box; }
+  if (ch.type === 'hbars') return hbars(ch.rows.filter((r) => r.v != null).map((r, i) => ({ label: r.label, v: r.v, color: C[0], tip: [r.label, (ch.yfmt === 'pct' ? pf(r.v) : d3.format('.1f')(r.v)) + (r.n ? ` · n=${r.n}` : '') + (r.sub ? ' · ' + r.sub : '')] })), { W: 1000, labW: 400, maxLab: 62, fmt: ch.yfmt === 'pct' ? pf : d3.format('.1f') });
+  if (ch.type === 'table') return table(ch.head, ch.rows.map((r) => ({ cells: r.map((v, i) => { const f = (ch.fmt || [])[i]; return f === 'pct' ? pf(v) : f === 'sgn' ? sgn1(v) : v == null ? '—' : v; }) })), { num: ch.head.map((_, i) => i).filter((i) => i > 0) });
+  if (ch.type === 'scatter') { const gcol = (g) => ({ Senior: C[0], U24: C[1], Junior: C[2], Other: C[7] }[g] || C[0]);
+    const sc = scatter(ch.pts.map((p, i) => ({ x: p[0], y: p[1], color: ch.groups ? gcol(ch.groups[i]) : C[0], tip: [p[2], `${ch.xlabel}: ${p[0]}`, `${ch.ylabel}: ${p[1]}`] })), { W: 1000, H: 340, xLab: ch.xlabel, yLab: ch.ylabel, yDomain: ch.flipy ? [d3.max(ch.pts, (p) => p[1]) + 1, 1] : null });
+    if (ch.groups) sc.append(legend([...new Set(ch.groups)].map((g) => [g === 'Other' ? 'Beach / masters / indoor' : g, gcol(g), 'dot']))); return sc; }
+  return null;
+}
+ROUTES.findings = async () => {
+  const D = await getJSON('findings.json'); const C = COL();
+  const st = { level: 'All' }; const list = h('div');
+  const draw = () => { list.replaceChildren(...D.findings.filter((f) => st.level === 'All' || f.level === st.level).map((f) => {
+    const g = GRADE[f.grade] || [f.grade, ''];
+    const el = card(null, null,
+      h('div', { class: 'fhead' }, h('span', { class: 'fgrade ' + f.grade, 'data-tip': JSON.stringify(['Evidence: ' + g[0], g[1]]) }, g[0]), h('span', { class: 'flevel' }, f.level + ' · ' + f.group), f.n ? h('span', { class: 'flevel' }, 'n = ' + d3.format(',')(f.n)) : null),
+      h('h2', null, f.q),
+      h('p', { class: 'fhyp' }, h('b', null, 'Hypothesis. '), f.hyp),
+      h('p', { class: 'finding flat' }, h('b', null, 'What the data shows. '), f.result),
+      findingChart(f.chart, C),
+      f.lists ? h('div', { class: 'grid2' }, f.lists.gone_while_good ? h('div', null, h('h3', null, 'Gone while good: left in their best season (Quality 50+)'), table(['Player', 'Peak season', 'Peak Quality'], f.lists.gone_while_good.map(([k, n, y, q]) => ({ go: '#/p/' + enc(k), cells: [n, y, q] })), { num: [1, 2], max: '18rem' })) : null,
+        f.lists.long_tail ? h('div', null, h('h3', null, 'Long tails: 2+ seasons past a 50+ peak'), table(['Player', 'Peak', 'Peak Quality', 'Last seen'], f.lists.long_tail.map(([k, n, y, q, l]) => ({ go: '#/p/' + enc(k), cells: [n, y, q, l] })), { num: [1, 2, 3], max: '18rem' })) : null) : null,
+      h('details', { class: 'fmeta' }, h('summary', null, 'How it was measured, what could produce the same pattern, and what would settle it'),
+        h('p', null, h('b', null, 'Method. '), f.method),
+        h('p', null, h('b', null, 'Could also be explained by: ')), h('ul', null, f.confounds.map((c) => h('li', null, c))),
+        h('p', null, h('b', null, 'Data that would settle it: ')), h('ul', null, f.gaps.map((c) => h('li', null, c)))));
+    return el; })); };
+  draw();
+  return [h('h1', null, 'Findings'), h('p', { class: 'sub' }, `What the data can and cannot say about retention, careers, clubs and GB. Each finding is a question, a hypothesis, the test, the result and an honest grade. Built ${D.built} from seasons up to ${D.now}. Nothing here feeds player or team scores.`),
+    card(null, null, h('div', { class: 'controls' }, h('div', { class: 'seg' }, ...['All', 'Community', 'Club', 'GB'].map((l) => h('button', { class: l === st.level ? 'on' : null, onclick: (e) => { st.level = l; e.target.parentNode.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === e.target)); draw(); } }, l))),
+      h('span', { class: 'note' }, 'Grades: ', ...Object.entries(GRADE).flatMap(([k, [n, d]], i) => [i ? ' · ' : '', h('span', { class: 'fgrade ' + k }, n), ' ' + d]))),
+      h('details', null, h('summary', null, 'Definitions used throughout'), h('pre', { class: 'defs' }, D.defs))),
+    list,
+    card('Questions we cannot answer yet', 'Each of these is a standard question in participation and talent-development research. The data to answer it does not exist in what we hold; the right-hand column is what would.',
+      table(['Question', 'Why not', 'What would answer it'], D.cannot.map((c) => ({ cells: [h('b', null, c.q), c.why, c.need] })))),
+    card('Who to ask', 'The findings point at specific groups a short survey would learn most from. Each list is already on this site.',
+      h('ul', null, h('li', null, h('b', null, 'Gone while good: '), 'players who left in their best season (list above under “Do players leave soon after their best season”). Ask why.'),
+        h('li', null, h('b', null, 'Missed one season: '), 'a quarter come back, three quarters do not. Ask the ones who came back what brought them back, and the ones who did not what would.'),
+        h('li', null, h('b', null, 'One-event players: '), 'half are never seen again. Ask at the event, not after.'),
+        h('li', null, h('b', null, 'Moved to a weaker team: '), 'a quarter are gone the next season, against a tenth after a move up. Ask whether the move was the first step out or a way to keep playing.'),
+        h('li', null, h('b', null, 'Division switchers: '), 'Open → Mixed and Mixed → Women both come with a Quality jump and high retention. Ask what made the switch work.')))];
+};
 ROUTES.trends = async () => {
   const T = await getJSON('trends.json'); const I = await index(); const C = COL(); const out = [h('h1', null, 'Trends'), h('p', { class: 'sub' }, 'What’s changing across UK club ultimate. Each chart comes with a plain reading of what it shows and how far to trust it. Click any bar, point or cell to see the players behind it.')];
   const tid = new Map(I.teams.map((t) => [t.n + '|' + t.d, t.id]));
