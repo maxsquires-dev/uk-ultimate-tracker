@@ -1565,6 +1565,17 @@ function uBest(rs) {   // best finish among a list of result rows: nationals Div
   return rs.slice().sort((a, b) => key(a) - key(b))[0];
 }
 const uMedal = (r) => r && r[3] === 'Nationals' && r[4] === 'Div 1' && r[6] <= 3 ? MEDAL(r[6]) : null;
+// strength over time in a table row: every season the data holds, a dot per season, latest dot larger; hover lists the values
+function strengthSpark(all, xs, name, color) {
+  const pts = all.filter((p) => p[1] != null); if (!pts.length) return '—';
+  const W = 150, H = 30, num = xs.every((v) => /^\d{4}$/.test(v)), x = num ? ((sc) => (v) => sc(+v))(d3.scaleLinear(d3.extent(xs, (v) => +v), [5, W - 5])) : d3.scalePoint(xs, [5, W - 5]), y = d3.scaleLinear([0, 100], [H - 4, 4]);
+  const el = h('span', { class: 'spark hasinfo' }); const sv = d3.select(el).append('svg').attr('viewBox', `0 0 ${W} ${H}`).attr('width', W).attr('height', H);
+  sv.append('line').attr('x1', 5).attr('x2', W - 5).attr('y1', y(50)).attr('y2', y(50)).attr('stroke', 'currentColor').attr('stroke-opacity', 0.15).attr('stroke-dasharray', '2 3');
+  if (pts.length > 1) sv.append('path').attr('d', d3.line().x((p) => x(p[0])).y((p) => y(p[1]))(pts)).attr('fill', 'none').attr('stroke', color).attr('stroke-width', 1.8);
+  pts.forEach((p, i) => sv.append('circle').attr('cx', x(p[0])).attr('cy', y(p[1])).attr('r', i === pts.length - 1 ? 3.2 : 2).attr('fill', color));
+  el.setAttribute('data-tip', JSON.stringify([name + ': strength by season (0–100)', ...pts.map((p, i) => `${p[0]}: ${f0(p[1])}` + (i ? `  (${p[1] - pts[i - 1][1] >= 0 ? '+' : ''}${f0(p[1] - pts[i - 1][1])})` : '')), pts.length === 1 ? 'Only one season in the data' : '']));
+  return el;
+}
 ROUTES.uni = async () => {
   const U = await getJSON('uni.json'); const C = COL(); const S = U.seasons, last = S[S.length - 1];
   const bys = U.by_season;
@@ -1583,8 +1594,8 @@ ROUTES.uni = async () => {
   const st = { q: '', d: 'all' }; const box = h('div');
   const sval = (u, s) => st.d === 'all' ? u.strength[s] : (u.best[s] || {})[st.d];
   const draw = () => { const rows = U.unis.filter((u) => !st.q || u.n.toLowerCase().includes(st.q)).map((u) => ({ u, v: sval(u, last) })).sort((a, b) => (b.v ?? -1) - (a.v ?? -1) || a.u.n.localeCompare(b.u.n));
-    box.replaceChildren(table(['#', 'University', 'Strength ' + last, 'Trend', 'Team entries ' + last, 'Divisions ' + last, 'Titles', 'Seasons'], rows.map(({ u, v }, i) => ({ go: '#/u/' + enc(u.id), cells: [v == null ? '—' : i + 1, h('b', null, u.n), v == null ? '—' : f0(v),
-      (() => { const pts = S.map((s) => [s, sval(u, s)]).filter((p) => p[1] != null); if (pts.length < 2) return ''; const el = h('span', { class: 'spark' }); const W = 110, H = 22, x = d3.scalePoint(S, [3, W - 3]), y = d3.scaleLinear([0, 100], [H - 3, 3]); const sv = d3.select(el).append('svg').attr('viewBox', `0 0 ${W} ${H}`); sv.append('path').attr('d', d3.line().x((p) => x(p[0])).y((p) => y(p[1]))(pts)).attr('fill', 'none').attr('stroke', C[0]).attr('stroke-width', 1.6); el.setAttribute('data-tip', JSON.stringify([u.n, ...pts.map((p) => `${p[0]}: ${f0(p[1])}`)])); return el; })(),
+    box.replaceChildren(table(['#', 'University', 'Strength ' + last, `Strength over time (${S[0]} → ${last})`, 'Team entries ' + last, 'Divisions ' + last, 'Titles', 'Seasons'], rows.map(({ u, v }, i) => ({ go: '#/u/' + enc(u.id), cells: [v == null ? '—' : i + 1, h('b', null, u.n), v == null ? '—' : f0(v),
+      strengthSpark(S.map((s) => [s, sval(u, s)]), S, u.n, C[0]),
       u.teams_by_season[last] ?? '—', (u.divs_last || []).join(', ') || '—', u.titles.length || '—', u.seasons] })), { num: [0, 2, 4, 6, 7], max: '40rem' })); };
   draw();
   out.push(card('University programme strength', 'Strength (0–100) ranks every indoor team in the country each season: Div 1 nationals in finishing order, then Div 2 nationals, then teams that only played regionals, placed by how far down their region they finished (an estimate). A university’s score in a division is its best team’s score; the overall score averages Mixed, Men’s and Women’s, counting 0 for a division with no team, so it rewards a programme that fields strong teams across all three.',
@@ -1644,8 +1655,8 @@ ROUTES.ib = async (arg) => {
     const box = h('div');
     const val = (c, y) => st.d === 'max' ? c.mx[y] : st.d === 'all' ? c.st[y] : (c.best[y] || {})[st.d];
     const drawT = () => { const R = F.clubs.filter((c) => (!st.q || c.n.toLowerCase().includes(st.q))).map((c) => ({ c, v: val(c, last) })).filter((x) => x.v != null || st.q).sort((a, b) => (b.v ?? -1) - (a.v ?? -1) || a.c.n.localeCompare(b.c.n));
-      box.replaceChildren(table(['#', 'Club / team', `Strength ${last}`, 'Trend', `Teams ${last}`, 'Gold', 'Silver', 'Bronze', 'Seasons'], R.map(({ c, v }, i) => ({ go: c.id ? '#/c/' + enc(c.id) : null, cells: [v == null ? '—' : i + 1, h('b', null, c.n), v == null ? '—' : f0(v),
-        (() => { const pts = S.map((y) => [String(y), val(c, String(y))]).filter((p) => p[1] != null); if (pts.length < 2) return ''; const el = h('span', { class: 'spark' }); const W = 110, H = 22, x = d3.scalePoint(S.map(String), [3, W - 3]), yy = d3.scaleLinear([0, 100], [H - 3, 3]); const sv = d3.select(el).append('svg').attr('viewBox', `0 0 ${W} ${H}`); sv.append('path').attr('d', d3.line().x((p) => x(p[0])).y((p) => yy(p[1]))(pts)).attr('fill', 'none').attr('stroke', C[0]).attr('stroke-width', 1.6); el.setAttribute('data-tip', JSON.stringify([c.n, ...pts.map((p) => `${p[0]}: ${f0(p[1])}`)])); return el; })(),
+      box.replaceChildren(table(['#', 'Club / team', `Strength ${last}`, `Strength over time (${S[0]} → ${last})`, `Teams ${last}`, 'Gold', 'Silver', 'Bronze', 'Seasons'], R.map(({ c, v }, i) => ({ go: c.id ? '#/c/' + enc(c.id) : null, cells: [v == null ? '—' : i + 1, h('b', null, c.n), v == null ? '—' : f0(v),
+        strengthSpark(S.map((y) => [String(y), val(c, String(y))]), S.map(String), c.n, C[0]),
         c.teams[last] ?? '—', c.g || '—', c.s || '—', c.b || '—', c.seasons] })), { num: [0, 2, 4, 5, 6, 7, 8], max: '40rem' })); };
     drawT();
     out.push(card(`Club ${st.f.toLowerCase()} strength`, st.f === 'Indoor' ? 'Strength (0–100) puts every team at a season’s UKU indoor events in one order: nationals finishers by place, then teams that only played a qualifier, placed by how far down their qualifier they finished (an estimate). “Best team” is the club’s best team in any division; the division buttons show one division; “All three” averages Mixed, Open and Women’s, counting 0 where the club had no team. Click a club for its club page.' : 'Strength (0–100) is a team’s nationals finish as a share of the field. “Best team” is the club’s best team in any division; the division buttons show one division; “All three” averages them, counting 0 where the club had no team. Click a club for its club page.',
