@@ -628,7 +628,7 @@ ROUTES.tree = async (k) => {
 };
 
 // ---------- teams ----------
-const KORDER = ['WUCC', 'EUCF', 'Elite Invite', 'E2CF', 'UKU Nationals', 'Masters (worlds)', 'Masters (EMUCC)', 'UKU Masters', 'Spring Tour', 'Summer Tour', 'Windmill', "Tom's Tourney", 'Vienna Spring Break', 'Bad Skid', 'UKU Nationals Div 2', 'UKU Regionals / Qualifier', 'UKU Tour', 'Invite', 'Beach club', 'Indoor club'];
+const KORDER = ['WUCC', 'EUCF', 'Elite Invite', 'E2CF', 'UKU Nationals', 'Masters (worlds)', 'Masters (EMUCC)', 'UKU Masters', 'Spring Tour', 'Summer Tour', 'Windmill', "Tom's Tourney", 'Vienna Spring Break', 'Bad Skid', 'UKU Nationals Div 2', 'UKU Regionals / Qualifier', 'UKU Tour', 'Invite', 'Beach club', 'Indoor club', 'UKU Beach Nationals', 'UKU Indoor Nationals', 'UKU Indoor Masters', 'UKU Indoor Qualifier'];
 const MAJOR = new Set(['WUCC', 'EUCF', 'Elite Invite', 'UKU Nationals', 'Masters (worlds)']);
 ROUTES.teams = async () => {
   const I = await index();
