@@ -1535,6 +1535,30 @@ function findingChart(ch, C) {
     if (ch.groups) sc.append(legend([...new Set(ch.groups)].map((g) => [g === 'Other' ? 'Beach / masters / indoor' : g, gcol(g), 'dot']))); return sc; }
   return null;
 }
+// the question bank on the Findings page: rules/question_bank.json via findings.py
+const QSTAT = { answered: ['Answered', 'qs-ans'], partly: ['Partly', 'qs-part'], 'needs data': ['Needs data', 'qs-need'] };
+function questionBank(B, onFinding) {
+  if (!B) return null;
+  const st = { t: 'all', s: 'all' }, box = h('div');
+  const cnt = (f) => B.questions.filter(f).length;
+  const segs = (opts, key) => h('div', { class: 'seg' }, ...opts.map(([k, l]) => h('button', { class: k === st[key] ? 'on' : null, onclick: (e) => { st[key] = k; e.target.parentNode.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === e.target)); draw(); } }, l)));
+  const draw = () => box.replaceChildren(...B.themes.filter(([tid]) => st.t === 'all' || st.t === tid).map(([tid, tn, td]) => {
+    const qs = B.questions.filter((q) => q.theme === tid && (st.s === 'all' || q.status === st.s)); if (!qs.length) return '';
+    return h('div', { class: 'qtheme' }, h('h3', null, tn), h('p', { class: 'note' }, td),
+      ...qs.map((q) => h('details', { class: 'qitem' },
+        h('summary', null, h('span', { class: 'qstat ' + QSTAT[q.status][1], 'data-tip': JSON.stringify([QSTAT[q.status][0], B.status_help[q.status]]) }, QSTAT[q.status][0]), ' ', h('b', null, q.q)),
+        h('ul', null, ...q.x.map((x) => h('li', null, x))),
+        h('p', null, h('b', null, 'What would answer it. '), q.data, h('span', { class: 'muted' }, ` Held by: ${q.holder}.`)),
+        h('p', { class: 'note' }, 'From: ' + q.origin, q.finding ? ' · ' : '', q.finding ? h('a', { href: '#/findings', onclick: (e) => { e.preventDefault(); onFinding(q.finding); } }, `See the finding (${(GRADE[q.fgrade] || [q.fgrade])[0].toLowerCase()} evidence) →`) : ''))));
+  }));
+  draw();
+  const el = card('Questions we are trying to answer', B.goal,
+    h('div', { class: 'controls' }, segs([['all', 'All stages'], ...B.themes.map(([k, n]) => [k, n])], 't')),
+    h('div', { class: 'controls' }, segs([['all', `All (${B.questions.length})`], ...Object.entries(QSTAT).map(([k, [l]]) => [k, `${l} (${cnt((q) => q.status === k)})`])], 's'),
+      h('span', { class: 'note' }, 'Click a question for the detail. The file behind this list (rules/question_bank.json) is meant to be edited: add, reword or retire questions as the work moves.')),
+    box);
+  el.id = 'questions'; return el;
+}
 ROUTES.findings = async () => {
   const D = await getJSON('findings.json'); const C = COL();
   const st = { level: 'All' }; const list = h('div');
@@ -1552,13 +1576,15 @@ ROUTES.findings = async () => {
         h('p', null, h('b', null, 'Method. '), f.method),
         h('p', null, h('b', null, 'Could also be explained by: ')), h('ul', null, f.confounds.map((c) => h('li', null, c))),
         h('p', null, h('b', null, 'Data that would settle it: ')), h('ul', null, f.gaps.map((c) => h('li', null, c)))));
-    return el; })); };
+    el.id = 'f-' + f.id; return el; })); };
   draw();
   return [h('h1', null, 'Findings'), h('p', { class: 'sub' }, `What the data can and cannot say about retention, careers, clubs and GB. Each finding is a question, a hypothesis, the test, the result and an honest grade. Built ${D.built} from seasons up to ${D.now}. Nothing here feeds player or team scores.`),
+    D.bank ? h('p', null, h('a', { href: '#/findings', onclick: (e) => { e.preventDefault(); document.getElementById('questions').scrollIntoView({ behavior: 'smooth', block: 'start' }); } }, `Jump to the ${D.bank.questions.length} questions we are trying to answer ↓`), h('span', { class: 'muted' }, ` (${D.bank.questions.filter((q) => q.status === 'answered').length} answered, ${D.bank.questions.filter((q) => q.status === 'partly').length} partly, ${D.bank.questions.filter((q) => q.status === 'needs data').length} need data)`)) : null,
     card(null, null, h('div', { class: 'controls' }, h('div', { class: 'seg' }, ...['All', 'Community', 'Club', 'GB'].map((l) => h('button', { class: l === st.level ? 'on' : null, onclick: (e) => { st.level = l; e.target.parentNode.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === e.target)); draw(); } }, l))),
       h('span', { class: 'note' }, 'Grades: ', ...Object.entries(GRADE).flatMap(([k, [n, d]], i) => [i ? ' · ' : '', h('span', { class: 'fgrade ' + k }, n), ' ' + d]))),
       h('details', null, h('summary', null, 'Definitions used throughout'), h('pre', { class: 'defs' }, D.defs))),
     list,
+    questionBank(D.bank, (id) => { st.level = 'All'; draw(); const el = document.getElementById('f-' + id); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }),
     card('Questions we cannot answer yet', 'Each of these is a standard question in participation and talent-development research. The data to answer it does not exist in what we hold; the right-hand column is what would.',
       table(['Question', 'Why not', 'What would answer it'], D.cannot.map((c) => ({ cells: [h('b', null, c.q), c.why, c.need] })))),
     card('Who to ask', 'The findings point at specific groups a short survey would learn most from. Each list is already on this site.',
