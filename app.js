@@ -836,6 +836,17 @@ ROUTES.c = async (id) => {
       cells[y] = { place: best ? best.p : null, sel: top, go: s.id ? '#/t/' + enc(s.id) : null, tip: [sideLabel(s) + ' · ' + y, ...(rs.length ? rs.map((r) => `${r.e}: ${r.p ? ord(r.p) : 'played'}${r.fl ? ' of ' + r.fl : ''}`) : ['On a roster, no placing in the data']), ...(top ? ['Strongest team in the club this season (team level ' + c.seasons[y].lv[i] + ')'] : [])] }; });
     return { label: sideLabel(s).length > 30 ? sideLabel(s).slice(0, 29) + '…' : sideLabel(s), go: s.id ? '#/t/' + enc(s.id) : null, cells }; });
   out.push(card('Every team, season by season', 'Best finish each season (hover for every event). The ringed circle is the club’s strongest grass team that season by team level. A dot means the team was on a roster but has no placing in the data.', medalGrid(rows, years, { W: 1000, labW: 230 })));
+  // indoor and beach strength over time (same measure as the Beach & Indoor page; display only)
+  { const IB = await getJSON('ib.json').catch(() => null);
+    if (IB) for (const F of ['Indoor', 'Beach']) { const FD = IB[F]; const k = FD && FD.clubs.find((x) => x.id === id); if (!k || !Object.keys(k.mx).length) continue;
+      const y0 = Object.keys(k.mx).sort()[0], xs = [...new Set(FD.clubs.flatMap((x) => Object.keys(x.mx)))].sort().filter((y) => y >= y0);
+      const DV = [['Mixed', 'Mixed'], ['Open', 'Open'], ['Women', 'Women’s']];
+      const series = [{ name: 'Best team (any division)', color: C[7], w: 3, pts: xs.filter((y) => k.mx[y] != null).map((y) => ({ x: y, y: k.mx[y], tip: [`${c.n} ${F.toLowerCase()} ${y}`, 'best team ' + f0(k.mx[y])] })) },
+        ...DV.map(([d, l], i) => ({ name: l, color: C[i], pts: xs.filter((y) => (k.best[y] || {})[d] != null).map((y) => ({ x: y, y: k.best[y][d], tip: [`${c.n} ${F.toLowerCase()} ${l} ${y}`, f0(k.best[y][d])] })) }))].filter((s) => s.pts.length);
+      const gap = F === 'Indoor' && xs.some((y) => +y < 2018) ? ' Seasons with no full indoor standings in the data (2011–13, 2015, 2018–21) are left out, so the axis jumps there.' : '';
+      out.push(card(`${F} strength over time`, `The club’s best ${F.toLowerCase()} team each season by division (0–100), measured the same way as on the Beach & Indoor page: ${F === 'Indoor' ? 'nationals finishers by place, then qualifier-only teams by how far down their qualifier they finished (an estimate)' : 'nationals finish as a share of the field'}. The thick line is the best team in any division.` + gap + (Object.keys(k.mx).length === 1 ? ' Only one season so far.' : ''),
+        lineChart(series, { W: 1000, H: 240, yDomain: [0, 100], legend: true, xs })));
+    } }
   // players
   const st = { y: '', s: '', pk: false, q: '' }, box = h('div'), cnt = h('p', { class: 'note' });
   const ys = (p) => Object.keys(p.ys).map(Number);
