@@ -360,7 +360,7 @@ ROUTES[''] = async () => {
           return { go: '#/p/' + enc(p.k), cells: [i + 1, p.n, p.t, p.d, f0(p.q), f0(p.st), trj(p.tr, p.trt, p.tri), spark(p), j > -999 ? `${j >= 0 ? '+' : ''}${j} (${jy})` : '—'] }; }), { num: [0, 4, 5, 6, 8] }))); };
       const ctl = h('div', { class: 'controls' },
         h('select', { onchange: (e) => { st.s = e.target.value; draw(); } }, Object.entries(SORTS).map(([k, [l]]) => h('option', { value: k }, 'Rank by: ' + l))),
-        h('select', { onchange: (e) => { st.n = +e.target.value; draw(); } }, [15, 25, 50, 100].map((n) => h('option', { value: n }, 'Top ' + n))));
+        h('select', { onchange: (e) => { st.n = +e.target.value; draw(); } }, [15, 25, 50, 100, 250, 100000].map((n) => h('option', { value: n }, n === 100000 ? 'All players' : 'Top ' + n))));
       draw();
       return card('Top players right now', 'Quality = how good this season; Standing = how proven over every season we have; Trajectory = points gained or lost per season (3+ seasons). Hover the little line for each year’s score and the change from the year before. Click a name for the full profile.', ctl, tb); })()];
 };
@@ -1619,6 +1619,51 @@ ROUTES.u = async (id) => {
   out.push(card('Every result', null, table(['Season', 'Competition', 'Stage', 'Team', 'Finish'], u.res.slice().reverse().map((r) => ({ cells: [r[0], `${r[1]} ${r[2]}`, r[3] === 'Nationals' ? 'Nationals ' + r[4] : 'Regionals' + (r[5] ? ' (' + r[5] + ')' : ''), r[8], `${ord(r[6])}${r[7] ? ' of ' + r[7] : ''}`] })), { num: [], max: '32rem' })));
   out.push(h('p', { class: 'note' }, 'Players are not linked: university rosters are held by UKU in JustGo, not published. ', h('a', { href: '#/uni' }, 'All universities →')));
   return out;
+};
+// ---------- beach & indoor (club game): UKU indoor qualifiers + nationals, UKU beach nationals, UK clubs abroad ----------
+ROUTES.ib = async (arg) => {
+  const D = await getJSON('ib.json'); const C = COL(); const I = await index();
+  const st = { f: arg === 'beach' ? 'Beach' : 'Indoor', d: 'max', q: '' };
+  const body = h('div');
+  const draw = () => {
+    const F = D[st.f], S = F.seasons.filter((y) => y >= 2022), last = String(S[S.length - 1]);
+    const per = F.per.filter((p) => p.y >= 2022), L = per[per.length - 1] || {};
+    const DV = ['Mixed', 'Open', 'Women'];
+    const cl = (c) => c.id ? h('a', { href: '#/c/' + enc(c.id) }, c.n) : c.n;
+    const tl = (id, n) => id ? h('a', { href: '#/t/' + enc(id) }, n) : n;
+    const out = [];
+    out.push(tiles([[`Teams ${last}`, (L.Mixed || 0) + (L.Open || 0) + (L.Women || 0), DV.map((d) => `${d} ${L[d] || 0}`).join(' · ')], [`Clubs ${last}`, L.clubs ?? '—', 'with at least one team at a UKU ' + st.f.toLowerCase() + ' event'], [`Events ${last}`, L.events ?? '—', st.f === 'Indoor' ? 'qualifiers and nationals' : 'nationals (spring Open & Women’s, September Mixed)'], ['Team finishes', F.n, `UKU ${st.f.toLowerCase()} events in the data`]]));
+    out.push(card('How many teams play', `Distinct teams at UKU ${st.f.toLowerCase()} events each season, by division.` + (st.f === 'Indoor' ? ' The indoor season runs October–March and is named by the year it ends.' : ''),
+      barChart(per.map((p) => ({ x: String(p.y), mx: p.Mixed, op: p.Open, wo: p.Women })), [{ key: 'mx', name: 'Mixed', color: C[0] }, { key: 'op', name: 'Open', color: C[1] }, { key: 'wo', name: 'Women', color: C[2] }], { W: 1000, H: 240 })));
+    // champions
+    const yrs = [...new Set(Object.keys(F.champs).map((k) => +k.split('|')[0]))].sort((a, b) => b - a);
+    const cols = [...DV, ...(Object.keys(F.champs).some((k) => k.endsWith('|Masters')) ? ['Masters'] : [])];
+    out.push(card('National champions', st.f === 'Indoor' ? 'UKU club indoor nationals winners. 2010–2017 are the few winners reported on club websites; full standings start in 2021-22.' : 'UKU beach nationals winners. 2023 had a spring Mixed & Open event as well as the September Mixed nationals, so Mixed shows two winners that year.',
+      table(['Season', ...cols], yrs.map((y) => ({ cells: [y, ...cols.map((d) => { const w = F.champs[y + '|' + d]; return w ? h('span', null, ...w.flatMap((x, i) => [i ? ' · ' : '', tl(x[1], x[0])])) : '—'; })] })))));
+    // strength table
+    const box = h('div');
+    const val = (c, y) => st.d === 'max' ? c.mx[y] : st.d === 'all' ? c.st[y] : (c.best[y] || {})[st.d];
+    const drawT = () => { const R = F.clubs.filter((c) => (!st.q || c.n.toLowerCase().includes(st.q))).map((c) => ({ c, v: val(c, last) })).filter((x) => x.v != null || st.q).sort((a, b) => (b.v ?? -1) - (a.v ?? -1) || a.c.n.localeCompare(b.c.n));
+      box.replaceChildren(table(['#', 'Club / team', `Strength ${last}`, 'Trend', `Teams ${last}`, 'Gold', 'Silver', 'Bronze', 'Seasons'], R.map(({ c, v }, i) => ({ go: c.id ? '#/c/' + enc(c.id) : null, cells: [v == null ? '—' : i + 1, h('b', null, c.n), v == null ? '—' : f0(v),
+        (() => { const pts = S.map((y) => [String(y), val(c, String(y))]).filter((p) => p[1] != null); if (pts.length < 2) return ''; const el = h('span', { class: 'spark' }); const W = 110, H = 22, x = d3.scalePoint(S.map(String), [3, W - 3]), yy = d3.scaleLinear([0, 100], [H - 3, 3]); const sv = d3.select(el).append('svg').attr('viewBox', `0 0 ${W} ${H}`); sv.append('path').attr('d', d3.line().x((p) => x(p[0])).y((p) => yy(p[1]))(pts)).attr('fill', 'none').attr('stroke', C[0]).attr('stroke-width', 1.6); el.setAttribute('data-tip', JSON.stringify([c.n, ...pts.map((p) => `${p[0]}: ${f0(p[1])}`)])); return el; })(),
+        c.teams[last] ?? '—', c.g || '—', c.s || '—', c.b || '—', c.seasons] })), { num: [0, 2, 4, 5, 6, 7, 8], max: '40rem' })); };
+    drawT();
+    out.push(card(`Club ${st.f.toLowerCase()} strength`, st.f === 'Indoor' ? 'Strength (0–100) puts every team at a season’s UKU indoor events in one order: nationals finishers by place, then teams that only played a qualifier, placed by how far down their qualifier they finished (an estimate). “Best team” is the club’s best team in any division; the division buttons show one division; “All three” averages Mixed, Open and Women’s, counting 0 where the club had no team. Click a club for its club page.' : 'Strength (0–100) is a team’s nationals finish as a share of the field. “Best team” is the club’s best team in any division; the division buttons show one division; “All three” averages them, counting 0 where the club had no team. Click a club for its club page.',
+      h('div', { class: 'controls' }, h('input', { type: 'search', placeholder: 'Filter clubs', value: st.q, oninput: (e) => { st.q = e.target.value.trim().toLowerCase(); drawT(); } }),
+        h('div', { class: 'seg' }, ...[['max', 'Best team'], ['Mixed', 'Mixed'], ['Open', 'Open'], ['Women', 'Women’s'], ['all', 'All three']].map(([k, l]) => h('button', { class: k === st.d ? 'on' : null, onclick: (e) => { st.d = k; e.target.parentNode.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === e.target)); drawT(); } }, l)))), box));
+    // medal table
+    const med = F.clubs.filter((c) => c.g + c.s + c.b > 0).sort((a, b) => b.g - a.g || b.s - a.s || b.b - a.b).slice(0, 20);
+    out.push(h('div', { class: 'grid2' },
+      card('Medal table', `Nationals podiums since ${S[0]} (all divisions).`, table(['Club / team', 'Gold', 'Silver', 'Bronze'], med.map((c) => ({ go: c.id ? '#/c/' + enc(c.id) : null, cells: [c.n, c.g || '—', c.s || '—', c.b || '—'] })), { num: [1, 2, 3], max: '26rem' })),
+      card(`UK clubs at European and world ${st.f.toLowerCase()} club events`, `From ultimate-reference.com (${st.f === 'Beach' ? 'European and world beach club championships' : 'European indoor club championships'}). Places are in the whole international field.`,
+        F.intl.length ? table(['Year', 'Event', 'Division', 'Team', 'Finish'], F.intl.map((r) => ({ go: r[6] ? '#/t/' + enc(r[6]) : null, cells: [r[0], r[1], r[2], r[3], r[4] ? ord(r[4]) + (r[5] ? ' / ' + r[5] : '') : '—'] })), { num: [0], max: '26rem' }) : h('p', { class: 'note' }, 'None in the data.'))));
+    out.push(h('p', { class: 'note' }, 'Full standings by event: ', ...(st.f === 'Indoor' ? [h('a', { href: '#/e/uku-indoor-qualifier' }, 'Indoor qualifiers'), ' · ', h('a', { href: '#/e/uku-indoor-nationals' }, 'Indoor nationals'), ' · ', h('a', { href: '#/e/indoor-club' }, 'European indoor club')] : [h('a', { href: '#/e/uku-beach-nationals' }, 'Beach nationals'), ' · ', h('a', { href: '#/e/beach-club' }, 'European / world beach club')]),
+      '. Indoor and beach results are shown on team and club pages but do not change outdoor team ratings or player Quality. Not covered: local indoor leagues, beach tour events, and seasons before 2021-22 (only a few winners from club websites).'));
+    body.replaceChildren(...out);
+  };
+  draw();
+  const seg = h('div', { class: 'seg famseg' }, ...['Indoor', 'Beach'].map((f) => h('button', { class: f === st.f ? 'on' : null, onclick: (e) => { st.f = f; seg.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === e.currentTarget)); draw(); } }, f)));
+  return [h('h1', null, 'Beach & Indoor'), h('p', { class: 'sub' }, 'The club game away from grass: UKU indoor qualifiers and nationals, UKU beach nationals, and UK clubs at European and world beach and indoor club events.'), seg, body];
 };
 ROUTES.trends = async () => {
   const T = await getJSON('trends.json'); const I = await index(); const C = COL(); const out = [h('h1', null, 'Trends'), h('p', { class: 'sub' }, 'What’s changing across UK club ultimate. Each chart comes with a plain reading of what it shows and how far to trust it. Click any bar, point or cell to see the players behind it.')];
