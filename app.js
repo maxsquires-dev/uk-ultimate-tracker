@@ -632,12 +632,12 @@ const KORDER = ['WUCC', 'EUCF', 'Elite Invite', 'E2CF', 'UKU Nationals', 'Master
 const MAJOR = new Set(['WUCC', 'EUCF', 'Elite Invite', 'UKU Nationals', 'Masters (worlds)']);
 ROUTES.teams = async () => {
   const I = await index();
-  const st = { q: '', d: '', h: true, club: true }; const list = h('div'); const cnt = h('p', { class: 'note' });
+  const st = { q: '', d: '', h: true, club: true, f: '', a: '' }; const list = h('div'); const cnt = h('p', { class: 'note' });
   const divs = [...new Set(I.teams.map((t) => t.d))].sort((a, b) => (['Open', 'Women', 'Mixed'].indexOf(a) + 1 || 9) - (['Open', 'Women', 'Mixed'].indexOf(b) + 1 || 9) || a.localeCompare(b));
   const yrs = (t) => (t.first ?? t.y0) === (t.last ?? t.y1) ? String(t.first ?? t.y0) : `${t.first ?? t.y0}–${t.last ?? t.y1}`;
   const teamTable = (L) => table(['Team', 'Division', 'Rosters', 'Players used', 'Results', 'Titles', 'Seen'], L.map((t) => ({ go: '#/t/' + enc(t.id), cells: [h('span', { class: 'withbadge' }, badge(t, 20), t.n), t.d, t.h ? 'results only' : `${t.y0}–${t.y1}`, t.p ?? '—', t.nr ?? '—', t.ti || '—', yrs(t)] })), { num: [3, 4, 5], max: '44rem' });
   const clubsById = new Map((I.clubs || []).map((c) => [c.id, c]));
-  const draw = () => { const L = I.teams.filter((t) => !t.ov && (st.h || !t.h) && (!st.d || t.d === st.d)).sort((a, b) => (b.last ?? b.y1) - (a.last ?? a.y1) || (b.nr || 0) - (a.nr || 0) || a.n.localeCompare(b.n));
+  const draw = () => { const L = I.teams.filter((t) => !t.ov && (st.h || !t.h) && (!st.d || t.d === st.d) && (!st.f || (t.fm || ['Grass']).includes(st.f)) && (!st.a || (t.ag || 'Adult') === st.a)).sort((a, b) => (b.last ?? b.y1) - (a.last ?? a.y1) || (b.nr || 0) - (a.nr || 0) || a.n.localeCompare(b.n));
     if (!st.club) { const M = L.filter((t) => !st.q || t.n.toLowerCase().includes(st.q));
       cnt.textContent = `${M.length} UK teams (${M.filter((t) => !t.h).length} with rosters, ${M.filter((t) => t.h).length} with results only). Overseas clubs that play UK events (e.g. Irish teams) are left out; their results stay on the event pages.`;
       list.replaceChildren(teamTable(M)); return; }
@@ -654,6 +654,8 @@ ROUTES.teams = async () => {
   return [h('h1', null, 'Teams'), h('p', { class: 'sub' }, 'Clubs and the teams under them. Pick a team for its honours, results, roster changes and who played when; pick a club view for everything under that banner.'),
     card(null, null, h('div', { class: 'controls' }, h('input', { type: 'search', placeholder: 'Filter clubs or teams', oninput: (e) => { st.q = e.target.value.trim().toLowerCase(); draw(); } }),
       h('select', { onchange: (e) => { st.d = e.target.value; draw(); } }, ['', ...divs].map((d) => h('option', { value: d }, d || 'All divisions'))),
+      h('select', { onchange: (e) => { st.f = e.target.value; draw(); } }, [['', 'All formats'], ['Grass', 'Grass'], ['Indoor', 'Indoor'], ['Beach', 'Beach']].map(([v, l]) => h('option', { value: v }, l))),
+      h('select', { onchange: (e) => { st.a = e.target.value; draw(); } }, [['', 'All age groups'], ['Adult', 'Adult'], ['Masters', 'Masters'], ['Grand Masters', 'Grand Masters'], ['Great Grand Masters', 'Great Grand Masters'], ['Youth', 'Youth']].map(([v, l]) => h('option', { value: v }, l))),
       h('div', { class: 'seg' }, ...[['Grouped by club', true], ['All teams', false]].map(([l, v]) => h('button', { class: v === st.club ? 'on' : null, onclick: (e) => { st.club = v; e.target.parentNode.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === e.target)); draw(); } }, l))),
       h('label', { class: 'note' }, h('input', { type: 'checkbox', checked: true, onchange: (e) => { st.h = e.target.checked; draw(); } }), ' include teams we only have results for')), cnt, list)];
 };
@@ -1593,6 +1595,82 @@ ROUTES.findings = async () => {
         h('li', null, h('b', null, 'One-event players: '), 'half are never seen again. Ask at the event, not after.'),
         h('li', null, h('b', null, 'Moved to a weaker team: '), 'a quarter are gone the next season, against a tenth after a move up. Ask whether the move was the first step out or a way to keep playing.'),
         h('li', null, h('b', null, 'Division switchers: '), 'Open → Mixed and Mixed → Women both come with a Quality jump and high retention. Ask what made the switch work.')))];
+};
+
+// ---------- engagement: participation by level, sessions and community events, journeys, masters (site/data/engage.json, from the data model) ----------
+const ENG_FMT = ['grass', 'indoor', 'beach'], ENG_SEG = [['all', 'Everyone'], ['club', 'Club'], ['university', 'University'], ['junior', 'Junior'], ['masters', 'Masters']];
+const ENG_TOPLBL = { intl_national: 'International (national teams)', intl_club: 'International club', nationals: 'National championships', series: 'National series & qualifiers', university: 'University', community: 'Community tournaments', sessions: 'Club sessions only', roster: 'Club squad list only', 'not seen': 'Not seen' };
+ROUTES.engage = async () => {
+  const E = await getJSON('engage.json'); const C = COL();
+  const LV = Object.entries(E.levels).sort((a, b) => a[1].order - b[1].order).filter(([k]) => k !== 'roster');
+  const out = [h('h1', null, 'Engagement'), h('p', { class: 'sub' }, 'How and where people take part in UK ultimate: every level from GB squads to club sessions and hat tournaments, how many teams and people we can see at each, and how people move between them. Built from the data model; nothing here feeds Quality or team ratings.')];
+  const S = E.series, M = E.masters;
+  out.push(tiles([['Levels on the ladder', LV.length, 'from GB squads to junior and schools'], ['Session and community series', new Set(S.map((r) => r.s)).size, `${S.length} series-years with names (${d3.min(S, (r) => r.y)}–${d3.max(S, (r) => r.y)})`],
+    ['People at sessions and hats', d3.sum(S, (r) => r.people), 'places across all series-years (a person counts once per series-year)'], ['Masters players', M.length, 'anyone with a Master, Grand Master or Great Grand Master appearance']]));
+
+  // ---- the ladder
+  { const st = { m: 't', f: 'all', s: 'all', from: 2016 }, box = h('div');
+    const Y = d3.range(2010, 2027);
+    const cellOf = (lv, y) => { const R = E.ladder.filter((r) => r.lv === lv && r.y === y && (st.f === 'all' || r.f === st.f) && (st.s === 'all' || r.s === st.s));
+      const ev = d3.sum(R, (r) => r.ev), t = d3.sum(R, (r) => r.t), p = d3.sum(R, (r) => r.p);
+      const est = d3.sum(R, (r) => r.t * ((E.sizes[r.f] || E.sizes.grass).med)), lo = d3.sum(R, (r) => r.t * ((E.sizes[r.f] || E.sizes.grass).q1)), hi = d3.sum(R, (r) => r.t * ((E.sizes[r.f] || E.sizes.grass).q3));
+      const ppl = (st.m === 't' || st.m === 'e') && !t && p;   // sessions and leagues have people, not teams: show people, marked
+      return { ev, t, p, est, lo, hi, ppl, v: ppl ? p : { t, ev, p, e: Math.round(est) }[st.m] }; };
+    const draw = () => { const ys = Y.filter((y) => y >= st.from); const rows = LV.map(([k, v]) => ({ label: v.name.replace(' (national teams)', ''), k }));
+      const mx = d3.max(rows, (r) => d3.max(ys, (y) => cellOf(r.k, y).v)) || 1;
+      box.replaceChildren(h('div', { class: 'chartwide' }, heatGrid(rows, ys.map(String), (r, c) => { const d = cellOf(r.k, +c);
+        return { v: d.v, ppl: d.ppl, share: d.v / mx, tip: [`${r.label} · ${c}`, `${d.ev} events or squads`, `${d.t} teams`, `${d.p} named people`, d.t ? `estimated players ${Math.round(d.lo)}–${Math.round(d.hi)} (from team counts × typical roster size)` : 'no teams held'] }; },
+        { labW: 210, cw: st.from < 2016 ? 52 : 74, fmt: (d) => d3.format(d.v >= 10000 ? '.2s' : ',')(d.v) + (d.ppl ? ' ppl' : '') })),
+        h('p', { class: 'note' }, LV.filter(([k]) => !Y.some((y) => cellOf(k, y).ev)).map(([, v]) => v.name).join(', ') ? 'Rungs with nothing held yet: ' + LV.filter(([k]) => !Y.some((y) => cellOf(k, y).ev)).map(([, v]) => v.name).join(', ') + '. These are the data we want (league sign-ups such as KAPOW and Curve, junior rosters).' : ''));
+    };
+    const seg = (opts, key) => h('div', { class: 'seg' }, ...opts.map(([k, l]) => h('button', { class: k === st[key] ? 'on' : null, onclick: (e) => { st[key] = k; e.target.parentNode.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === e.target)); draw(); } }, l)));
+    draw();
+    out.push(card('The participation ladder', 'Each rung is a kind of activity (rules/levels.csv). Cells count what we hold for that rung in that year. Teams come from standings and rosters, so indoor, beach and university appear as teams even though we hold few of their rosters; named people only where a roster, squad or session list exists. Estimated players multiply team counts by the typical roster size for the format (below), so they are a range, not a count.',
+      h('div', { class: 'controls' }, seg([['t', 'Teams'], ['ev', 'Events'], ['p', 'Named people'], ['e', 'Estimated players']], 'm'), seg([['all', 'All formats'], ...ENG_FMT.map((f) => [f, f[0].toUpperCase() + f.slice(1)])], 'f')),
+      h('div', { class: 'controls' }, seg(ENG_SEG, 's'), seg([[2016, 'Since 2016'], [2010, 'Since 2010']], 'from')), box)); }
+
+  // ---- roster sizes
+  out.push(card('How big is a team?', 'Players named on one team at one event, from the rosters we hold (teams with at least 5 names). The middle half of teams sit in the range shown. This is what turns team counts into a player estimate.',
+    table(['Format', 'Team rosters measured', 'Typical', 'Middle half'], ENG_FMT.filter((f) => E.sizes[f]).map((f) => ({ cells: [f[0].toUpperCase() + f.slice(1), E.sizes[f].n, Math.round(E.sizes[f].med), `${Math.round(E.sizes[f].q1)}–${Math.round(E.sizes[f].q3)}`] })), { num: [1, 2] }),
+    h('p', { class: 'note' }, E.sizes.indoor_note)));
+
+  // ---- sessions and community events
+  { const pct = (a, b) => b ? d3.format('.0%')(a / b) : '—';
+    out.push(card('Club sessions and community events', 'Series where we hold the names of who came: invite-only and seasonal club sessions, and hat tournaments. Allocations are the record for sessions. "Back" is how many came the year before too. The last three columns use everything else in the data that same year.',
+      h('div', { class: 'tscroll' }, table(['Series', 'Year', 'What', 'Sessions / teams', 'People', 'Waitlist', 'Back from last year', 'Also at a tournament that year', 'Also international that year', 'Never seen at a tournament'],
+        S.slice().sort((a, b) => a.label.localeCompare(b.label) || a.y - b.y).map((r) => ({ cells: [h('b', null, r.label), r.y, r.kind, r.teams ? `${r.teams} teams` : `${r.sessions} sessions`, r.people, r.wait || '—', r.back == null ? '—' : `${r.back} (${pct(r.back, r.prev)})`, pct(r.people - r.none, r.people), pct(r.intl, r.people), pct(r.never, r.people)] })), { num: [1, 3, 4, 5] })),
+      h('p', { class: 'note' }, 'A hat in 2021 shows few people "at a tournament that year" because almost no UK tournaments ran in 2021, not because hat players do not play elsewhere. "Never seen" depends on what we hold: indoor, beach and university are team-only, so some of these people do play, just where we cannot see names.'),
+      E.overlap.length ? h('div', null, h('h3', null, 'The same people at different series'), hbars(E.overlap.sort((a, b) => b.n - a.n).slice(0, 15).map((o) => ({ label: `${o.a} & ${o.b}`, v: o.n, tip: [`${o.a} and ${o.b}`, `${o.n} people at both`] })), { W: 1000, labW: 420, maxLab: 70 })) : null)); }
+
+  // ---- journeys
+  { const J = E.journeys, ys = [...new Set(J.trans.map((t) => t.y))].sort(), st = { y: ys[ys.length - 2] || ys[ys.length - 1] }, box = h('div'), mixBox = h('div');
+    const ORD = ['intl_national', 'intl_club', 'nationals', 'series', 'university', 'community', 'sessions', 'roster', 'not seen'];
+    const draw = () => { const T = J.trans.filter((t) => t.y === st.y); const A = ORD.filter((k) => T.some((t) => t.a === k)), B = ORD.filter((k) => T.some((t) => t.b === k));
+      const tot = (a) => d3.sum(T.filter((t) => t.a === a), (t) => t.n);
+      box.replaceChildren(h('div', { class: 'chartwide' }, heatGrid(A.map((a) => ({ label: ENG_TOPLBL[a], k: a })), B.map((b) => ENG_TOPLBL[b]), (r, c) => { const b = B.find((x) => ENG_TOPLBL[x] === c); const n = d3.sum(T.filter((t) => t.a === r.k && t.b === b), (t) => t.n);
+        return { v: n, share: n / (tot(r.k) || 1), tip: [`${ENG_TOPLBL[r.k]} in ${st.y} → ${c} in ${st.y + 1}`, `${n} people (${d3.format('.0%')(n / (tot(r.k) || 1))} of that row)`] }; }, { labW: 220, cw: 108 })));
+      const X = J.mix.filter((m) => m.y === st.y + 1).sort((a, b) => b.n - a.n).slice(0, 14);
+      mixBox.replaceChildren(hbars(X.map((m) => ({ label: ENG_TOPLBL[m.top] + (m.extra ? ' ' + m.extra.replace(/\+/g, ' + ') : ''), v: m.n, tip: [ENG_TOPLBL[m.top] + m.extra, `${m.n} people in ${st.y + 1}`] })), { W: 1000, labW: 460, maxLab: 70 })); };
+    draw();
+    out.push(card('Journeys: how people’s seasons change', 'Each person’s season is placed on the highest rung they reached that year. The grid shows where the people on each rung one year were the next. Rows add up across, so a dark cell is where most of that row went.',
+      h('div', { class: 'controls' }, h('select', { onchange: (e) => { st.y = +e.target.value; draw(); } }, ys.filter((y) => y < 2026).map((y) => h('option', { value: y, selected: y === st.y ? true : null }, `${y} → ${y + 1}`)))), box,
+      h('h3', null, 'What a season looks like (the following year)'), h('p', { class: 'note' }, 'The commonest combinations: highest rung, plus sessions, community events and formats other than grass where named.'), mixBox,
+      h('p', { class: 'note' }, J.note))); }
+
+  // ---- masters journeys
+  { const st = { t: 'all', p: 'all' }, box = h('div'), barBox = h('div');
+    const PATHS = ['GB senior before', 'GB youth before', 'Club before', 'Kit list / roster only before', 'First seen at masters'], PC = { 'GB senior before': C[0], 'GB youth before': C[5], 'Club before': C[2], 'Kit list / roster only before': C[6], 'First seen at masters': C[7] };
+    const ys = d3.range(d3.min(M, (m) => m.y0), d3.max(M, (m) => m.y0) + 1);
+    barBox.append(barChart(ys.map((y) => Object.assign({ x: String(y) }, ...PATHS.map((p) => ({ [p]: M.filter((m) => m.y0 === y && m.path === p).length })))), PATHS.map((p) => ({ key: p, name: p, color: PC[p] })), { W: 1000, H: 240 }));
+    const draw = () => { const L = M.filter((m) => (st.t === 'all' || m.tier === st.t) && (st.p === 'all' || m.path === st.p));
+      box.replaceChildren(h('p', { class: 'note' }, `${L.length} players`), h('div', { class: 'tscroll' }, table(['Player', 'First masters season', 'Level', 'Format', 'First masters team', 'Before that', 'Gap since last seen', 'Masters seasons'],
+        L.map((m) => ({ go: m.k.startsWith('?') ? null : '#/p/' + enc(m.k), cells: [m.n, m.y0, m.tier, m.f.join(', '), m.first.join(', '), m.path, m.gap == null ? '—' : m.gap + (m.gap === 1 ? ' year' : ' years'), m.years.length] })), { num: [1, 6, 7] }))); };
+    const seg = (opts, key) => h('div', { class: 'seg' }, ...opts.map(([k, l]) => h('button', { class: k === st[key] ? 'on' : null, onclick: (e) => { st[key] = k; e.target.parentNode.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === e.target)); draw(); } }, l)));
+    draw();
+    out.push(card('Into masters', 'Everyone with a Master, Grand Master or Great Grand Master appearance (grass, beach or indoor; club or GB), by the season of their first one, and what we saw of them before it. Our data starts in 2010, so "first seen at masters" includes many who played GB or club before 2010 (Si’s point): senior GB squads back to the 1990s would explain most of that group.',
+      tiles(PATHS.map((p) => [p, M.filter((m) => m.path === p).length, d3.format('.0%')(M.filter((m) => m.path === p).length / M.length) + ' of masters players'])), barBox,
+      h('div', { class: 'controls' }, seg([['all', 'All levels'], ['Master', 'Masters'], ['Grand Master', 'Grand Masters'], ['Great Grand Master', 'Great Grand Masters']], 't'), seg([['all', 'Any path'], ...PATHS.map((p) => [p, p.replace(' before', '').replace('Kit list / roster only', 'Squad list only')])], 'p')), box)); }
+  return out;
 };
 // ---------- universities (UKU / BUCS university events, from the published schedule sheets) ----------
 const UCOMP = [['Indoor', 'Mixed'], ['Indoor', 'Men'], ['Indoor', 'Women'], ['Outdoor', 'Mixed'], ['Outdoor', 'Men'], ['Outdoor', 'Women'], ['Beach', 'Mixed']];
