@@ -181,7 +181,7 @@ function hbarsStack(rows, o = {}) {
     r.parts.forEach((p) => { if (!p.v) return; const x0 = x(acc), x1 = x(acc + p.v); acc += p.v;
       const rect = svg.append('rect').attr('x', x0).attr('y', y).attr('width', Math.max(0, x1 - x0 - 1)).attr('height', rh - 6).attr('fill', p.color).style('cursor', p.onclick ? 'pointer' : null).on('click', (ev) => p.onclick && p.onclick(ev));
       if (x1 - x0 > 30) svg.append('text').attr('x', (x0 + x1) / 2).attr('y', y + rh / 2 + 1).attr('text-anchor', 'middle').style('font-size', '10.5px').style('fill', '#fff').style('pointer-events', 'none').text(p.label != null ? p.label : d3.format('.0%')(p.v));
-      onTip(rect, () => [r.label, `${p.lab}: ${p.n} (${d3.format('.0%')(p.v)})`, ...(p.onclick ? [CLICK] : [])]); }); });
+      onTip(rect, () => [...(p.tip || [r.label, `${p.lab ?? ''}${p.n != null ? ': ' + p.n : ''} (${d3.format('.0%')(p.v)})`]), ...(p.onclick ? [CLICK] : [])]); }); });
   return box;
 }
 function donut(items, o = {}) {
@@ -1872,14 +1872,21 @@ function ujSquadFlow(P, I) {
 }
 // two 100% bars per university: who the squad players are, and what happened to the leavers
 function ujBars(UJ, ids, nmOf) {
-  const C = COL(); const pc = d3.format('.0%');
-  const mk = (i) => { const P = UJ.people[i], n = P.length; const before = P.filter((p) => p.before).length, club = P.filter((p) => !p.before && (p.during || p.uni_club)).length, only = n - before - club;
-    return { label: `${nmOf(i)} (${n})`, parts: [{ v: before / n, color: C[0], tip: [nmOf(i), `${before} already playing club before university (${pc(before / n)})`] }, { v: club / n, color: C[2], tip: [nmOf(i), `${club} first played club while at university (${pc(club / n)})`] }, { v: only / n, color: '#c9ccd0', tip: [nmOf(i), `${only} university squads only (${pc(only / n)})`] }] }; };
-  const mk2 = (i) => { const J = UJ.people[i].filter((p) => p.judged), n = J.length || 1; const a = J.filter((p) => (p.during || p.uni_club) && p.after).length, b = J.filter((p) => !(p.during || p.uni_club) && p.after).length, c = J.filter((p) => (p.during || p.uni_club) && !p.after).length, d = J.length - a - b - c;
-    return { label: `${nmOf(i)} (${J.length} leavers)`, parts: [{ v: a / n, color: C[2], tip: [nmOf(i), `${a} played club at university and are seen after`] }, { v: b / n, color: C[5], tip: [nmOf(i), `${b} university only, seen after`] }, { v: c / n, color: '#e0b48c', tip: [nmOf(i), `${c} played club at university, not seen since`] }, { v: d / n, color: '#c9ccd0', tip: [nmOf(i), `${d} university only, not seen since`] }] }; };
-  return h('div', { class: 'grid2' },
-    h('div', null, h('h3', null, 'Who is on the squads'), hbarsStack(ids.map(mk), { W: 480, labW: 150 }), legend([['Already club players', C[0]], ['First played club at university', C[2]], ['University only', '#c9ccd0']])),
-    h('div', null, h('h3', null, 'Leavers we can judge: seen again?'), hbarsStack(ids.map(mk2), { W: 480, labW: 150 }), legend([['Club at uni, seen after', C[2]], ['Uni only, seen after', C[5]], ['Club at uni, not seen', '#e0b48c'], ['Uni only, not seen', '#c9ccd0']])));
+  // Two plain questions per university, each bar = 100% of that university's players; click any segment for the names
+  const C = COL(), pc = d3.format('.0%'), who = h('div', { class: 'note' }, 'Click any coloured segment to list the players in it.');
+  const show = (title, L) => who.replaceChildren(h('b', null, `${title}: ${L.length} players`), h('div', null, ...L.sort((a, b) => a.n.localeCompare(b.n)).map((p) => h('a', { href: '#/p/' + enc(p.k), style: 'margin-right:10px;display:inline-block' }, p.n))));
+  const seg = (uni, L, n, color, what) => ({ v: n ? L.length / n : 0, label: L.length, color, tip: [nmOf(uni), `${L.length} of ${n} ${what} (${pc(n ? L.length / n : 0)})`], onclick: () => show(`${nmOf(uni)}, ${what}`, L) });
+  const mk = (i) => { const P = UJ.people[i], n = P.length;
+    const A = P.filter((p) => p.before), B = P.filter((p) => !p.before && (p.during || p.uni_club)), O = P.filter((p) => !p.before && !(p.during || p.uni_club));
+    return { label: `${nmOf(i)} (${n})`, parts: [seg(i, A, n, C[0], 'were already club players before university'), seg(i, B, n, C[2], 'started club while at university'), seg(i, O, n, '#b9bdc3', 'have only ever played university')] }; };
+  const mk2 = (i) => { const J = UJ.people[i].filter((p) => p.judged), n = J.length;
+    const Y = J.filter((p) => p.after), N = J.filter((p) => !p.after);
+    return { label: `${nmOf(i)} (${n})`, parts: [seg(i, Y, n, C[2], 'leavers still playing after university'), seg(i, N, n, '#b9bdc3', 'leavers we never see play again')] }; };
+  return h('div', null, h('div', { class: 'grid2' },
+    h('div', null, h('h3', null, 'Where did their squad players start?'), h('p', { class: 'note' }, 'Each bar is every named squad player at that university (number in brackets). Blue: already played club before they arrived. Green: first club team while at university. Grey: university only, no club in our data.'),
+      hbarsStack(ids.map(mk), { W: 480, labW: 150 }), legend([['Club before university', C[0]], ['Started club at university', C[2]], ['University only', '#b9bdc3']])),
+    h('div', null, h('h3', null, 'After they leave, do they keep playing?'), h('p', { class: 'note' }, `Only players whose last university season is over and we’ve had a club season since (number in brackets). Green: seen playing club, GB or community events after. Grey: not seen again.`),
+      hbarsStack(ids.map(mk2), { W: 480, labW: 150 }), legend([['Still playing', C[2]], ['Not seen again', '#b9bdc3']]))), who);
 }
 // where graduates go: destination clubs stacked by university
 function ujDest(UJ, ids, nmOf) {
