@@ -145,6 +145,19 @@ function barChart(data, keys, o = {}) {
   if (keys.length > 1) box.append(legend(keys.map((k) => [k.name, k.color])));
   return box;
 }
+/** dot with a range bar: rows [{label, v, lo?, hi?, color, tip}]; o.xDomain, o.ref (reference line), o.fmt */
+function dotRange(rows, o = {}) {
+  const W = o.W || 560, rh = 24, labW = o.labW || 170, H = rows.length * rh + 14, fmt = o.fmt || f1;
+  const { box, svg } = svgBox(W, H); const x = d3.scaleLinear(o.xDomain || d3.extent(rows.flatMap((r) => [r.lo ?? r.v, r.hi ?? r.v])), [labW + 10, W - 40]);
+  svg.append('g').attr('transform', `translate(0,${H - 12})`).call(d3.axisBottom(x).ticks(6)).call((g) => g.select('.domain').remove());
+  if (o.ref != null) svg.append('line').attr('x1', x(o.ref)).attr('x2', x(o.ref)).attr('y1', 2).attr('y2', H - 14).attr('stroke', css('--axis')).attr('stroke-dasharray', '3 3');
+  rows.forEach((r, i) => { const y = i * rh + rh / 2; const g = svg.append('g');
+    g.append('text').attr('x', labW).attr('y', y + 4).attr('text-anchor', 'end').style('fill', css('--fg')).text(r.label);
+    if (r.lo != null && r.hi != null) g.append('rect').attr('x', x(r.lo)).attr('y', y - 5).attr('width', Math.max(1, x(r.hi) - x(r.lo))).attr('height', 10).attr('rx', 5).attr('fill', r.color || COL()[0]).attr('fill-opacity', 0.25);
+    onTip(g.append('circle').attr('cx', x(r.v)).attr('cy', y).attr('r', 5.5).attr('fill', r.color || COL()[0]).attr('stroke', css('--panel')).attr('stroke-width', 1.5), () => r.tip || [r.label, fmt(r.v)]);
+    g.append('text').attr('x', x(r.hi != null ? Math.max(r.hi, r.v) : r.v) + 9).attr('y', y + 4).text(fmt(r.v)); });
+  return box;
+}
 /** horizontal bars: rows [{label, v, color, tip, go}] */
 function hbars(rows, o = {}) {
   const W = o.W || 560, rh = 22, labW = o.labW || 170, H = rows.length * rh + 10, mx = d3.max(rows, (r) => Math.abs(r.v)) || 1, mn = d3.min(rows, (r) => r.v) || 0;
@@ -1646,9 +1659,9 @@ ROUTES.engage = async () => {
       h('div', { class: 'controls' }, seg(ENG_SEG, 's'), seg([[2016, 'Since 2016'], [2010, 'Since 2010']], 'from')), box)); }
 
   // ---- the populations we care about: people seen in each segment by year (named people only)
-  { const SEGS = ENG_SEG.slice(1); const ys = d3.range(2018, 2027);
+  { const SEGS = ENG_SEG.slice(1); const ys = d3.range(2022, 2027);
     const segP = (sg, y) => d3.sum(E.ladder.filter((r) => r.s === sg && r.y === y), (r) => r.p), segT = (sg, y) => d3.sum(E.ladder.filter((r) => r.s === sg && r.y === y), (r) => r.t);
-    out.push(card('The populations', 'Named people (left) and teams (right) we can see in each population each year. Recreational = club sessions, hats, beginners events, leagues and community listings; it is the population with the least data today, which is why it looks small.',
+    out.push(card('The populations', 'Named people (left) and teams (right) we can see in each population each year. Recreational = club sessions, hats, beginners events, leagues and community listings; it is the population with the least data today, which is why it looks small. Growth since 2022 is mostly coverage growing, not the sport.',
       h('div', { class: 'grid2' },
         h('div', null, h('h3', null, 'Named people'), barChart(ys.map((y) => Object.assign({ x: String(y) }, ...SEGS.map(([k]) => ({ [k]: segP(k, y) })))), SEGS.map(([k, l], i) => ({ key: k, name: l, color: C[[0, 4, 2, 1, 3][i]] })), { W: 480, H: 230 })),
         h('div', null, h('h3', null, 'Teams'), barChart(ys.map((y) => Object.assign({ x: String(y) }, ...SEGS.map(([k]) => ({ [k]: segT(k, y) })))), SEGS.map(([k, l], i) => ({ key: k, name: l, color: C[[0, 4, 2, 1, 3][i]] })), { W: 480, H: 230 }))))); }
@@ -1920,18 +1933,21 @@ async function spiritCard(entityKey, name) {
     tiles([['Average received', f1(d3.mean(rec)), `${ev.length} events scored, ${new Set(ev.map((e) => e.s)).size} seasons`], ['Best event', f1(best.r), best.ev.includes(best.s) ? best.ev : `${best.ev} ${best.s}`], ['Lowest event', f1(worst.r), worst.ev.includes(worst.s) ? worst.ev : `${worst.ev} ${worst.s}`],
       ['Gave minus received', diff == null ? '—' : (diff >= 0 ? '+' : '') + f1(diff), diff == null ? 'no game-level sheets' : diff > 0.3 ? 'scores opponents higher than it is scored' : diff < -0.3 ? 'scores opponents lower than it is scored' : 'about even']]),
     spiritStrip(ev, { W: 1000, H: 250, ref: { mean: allMean, q1, q3 }, name }),
-    byK.length > 2 ? h('div', null, h('h3', null, 'By kind of event'), hbars(byK.map((x) => ({ label: x.k, v: +f1(d3.mean(x.v, (e) => e.r)), color: SP_COL(x.k), tip: [x.k, `${f1(d3.mean(x.v, (e) => e.r))} average received over ${x.v.length} events`] })), { W: 600, labW: 180, xDomain: [8, 14] })) : null);
+    byK.length > 2 ? h('div', null, h('h3', null, 'By kind of event'), hbars(byK.map((x) => ({ label: x.k, v: +f1(d3.mean(x.v, (e) => e.r)), color: SP_COL(x.k), tip: [x.k, `${f1(d3.mean(x.v, (e) => e.r))} average received over ${x.v.length} events`] })), { W: 1000, labW: 180, xDomain: [9, 13] })) : null);
 }
 ROUTES.spirit = async () => {
   const SP = await spirit(); const C = COL(); const I = await index();
   if (!SP) return [h('h1', null, 'Spirit'), h('p', { class: 'note' }, 'No spirit data built yet.')];
   const out = [h('h1', null, 'Spirit of the Game'), h('p', { class: 'sub' }, `UKU’s published Spirit of the Game results, ${SP.seasons[0].s} to ${SP.seasons[SP.seasons.length - 1].s}: ${d3.format(',')(SP.n_scores)} game scores and ${d3.format(',')(SP.n_team_events)} team-event averages across club, university, junior, beach and indoor events. Scores are the standard WFDF sheet (rules knowledge, fouls and body contact, fair-mindedness, attitude, communication; each 0–4, total out of 20, 10 is “good”). Shown raw, never rescaled. Comments are not copied.`)];
   const allMean = d3.mean(SP.kinds, (k) => k.mean);
-  out.push(tiles([['Average score', f1(allMean), 'across every team at every event'], ...SP.cats.map((c, i) => [['Rules', 'Fouls & contact', 'Fair-mindedness', 'Attitude', 'Communication'][i], f1(SP.cat_means[c]), 'average, out of 4'])]));
+  out.push(tiles([['Average score', f1(allMean), 'out of 20, across every team at every event'], ['Game scores', d3.format(',')(SP.n_scores), 'one team scoring another'], ['Team-events', d3.format(',')(SP.n_team_events), 'a team at one event'], ['Seasons', SP.seasons.length, `${SP.seasons[0].s} to ${SP.seasons[SP.seasons.length - 1].s}`]]));
+  const CATN = ['Rules knowledge', 'Fouls and body contact', 'Fair-mindedness', 'Attitude and self-control', 'Communication'];
+  out.push(card('The five categories', 'Average given in each category, out of 4 (2 is “good”). Attitude is scored a little higher than the rest; rules knowledge and fouls a little lower.',
+    dotRange(SP.cats.map((c, i) => ({ label: CATN[i], v: SP.cat_means[c], color: C[0], tip: [CATN[i], `${d3.format('.2f')(SP.cat_means[c])} average out of 4`] })), { W: 1000, labW: 220, xDomain: [1.5, 2.5], ref: 2, fmt: d3.format('.2f') })));
   // by kind: mean with the middle half
   const K = SP.kinds.filter((k) => k.n >= 20);
-  out.push(card('Does spirit change with the kind of event?', 'Average score a team receives at each kind of event, with the middle half of teams. Hover for numbers.',
-    hbars(K.sort((a, b) => b.mean - a.mean).map((k) => ({ label: k.k, v: k.mean, color: SP_COL(k.k), tip: [k.k, `average ${f1(k.mean)} · middle half ${f1(k.q1)}–${f1(k.q3)}`, `${k.n} team-events`] })), { W: 1000, labW: 190, xDomain: [8, 14] })));
+  out.push(card('Spirit barely changes with the kind of event', 'The dot is the average score a team receives at each kind of event; the bar is the middle half of teams. Everything sits within half a point of the overall average except junior events. Hover for numbers.',
+    dotRange(K.sort((a, b) => b.mean - a.mean).map((k) => ({ label: k.k, v: k.mean, lo: k.q1, hi: k.q3, color: SP_COL(k.k), tip: [k.k, `average ${f1(k.mean)} · middle half ${f1(k.q1)}–${f1(k.q3)}`, `${k.n} team-events`] })), { W: 1000, labW: 190, xDomain: [9, 13], ref: allMean })));
   // by season
   out.push(card('Spirit by season', 'Average received across all teams and events each season.',
     lineChart([{ name: 'All events', color: C[0], w: 3, pts: SP.seasons.map((s) => ({ x: s.s, y: s.mean, tip: [s.s, `${f1(s.mean)} average over ${s.n} team-events`] })) }], { W: 1000, H: 220, yDomain: [8, 14], xs: SP.seasons.map((s) => s.s) })));
@@ -1953,8 +1969,8 @@ ROUTES.spirit = async () => {
   if (SP.retention && SP.retention.length > 5) {
     const pts = SP.retention.map((r) => ({ x: r.spirit, y: r.back, color: C[0], tip: [`${r.n} ${r.y}`, `spirit received ${f1(r.spirit)} over ${r.events} events`, `${d3.format('.0%')(r.back)} of ${r.players} rostered players seen in ${r.y + 1}`] }));
     const mx = d3.mean(pts, (p) => p.x), my = d3.mean(pts, (p) => p.y), r_ = d3.sum(pts, (p) => (p.x - mx) * (p.y - my)) / Math.sqrt(d3.sum(pts, (p) => (p.x - mx) ** 2) * d3.sum(pts, (p) => (p.y - my) ** 2) || 1);
-    out.push(card('Does spirit track retention?', `Each dot is a club-season: the club’s average spirit received that year against the share of its rostered players seen anywhere the next year (clubs with 8+ named players). Correlation ${d3.format('+.2f')(r_)} over ${pts.length} club-seasons${Math.abs(r_) < 0.15 ? ': no relationship visible yet' : r_ > 0 ? ': higher-spirit clubs keep slightly more players, but this does not separate cause from the kind of club' : ''}.`,
-      scatter(pts, { W: 1000, H: 300, xLab: 'spirit received', yLab: 'back next year', yFmt: d3.format('.0%'), xDomain: [8, 14], yDomain: [0, 1] })));
+    out.push(card(Math.abs(r_) < 0.15 ? 'Spirit does not track retention (so far)' : 'Does spirit track retention?', `Each dot is a club-season: the club’s average spirit received that year against the share of its rostered players seen anywhere the next year (clubs with 8+ named players). Correlation ${d3.format('+.2f')(r_)} over ${pts.length} club-seasons${Math.abs(r_) < 0.15 ? ': no relationship visible yet' : r_ > 0 ? ': higher-spirit clubs keep slightly more players, but this does not separate cause from the kind of club' : ''}.`,
+      scatter(pts, { W: 1000, H: 300, xLab: 'spirit received', yLab: 'back next year', yFmt: d3.format('.0%'), xDomain: [d3.min(pts, (p) => p.x) - 0.2, d3.max(pts, (p) => p.x) + 0.2], yDomain: [Math.max(0, d3.min(pts, (p) => p.y) - 0.05), 1] })));
   }
   out.push(h('p', { class: 'note' }, 'Source: UKU Spirit of the Game results pages (five season pages, 267 published sheets). Team names on the sheets are mapped to clubs and universities by name; about 3% of team-events could not be mapped and are left out of the club views.'));
   return out;
