@@ -1657,6 +1657,28 @@ ROUTES.engage = async () => {
       h('h3', null, 'What a season looks like (the following year)'), h('p', { class: 'note' }, 'The commonest combinations: highest rung, plus sessions, community events and formats other than grass where named.'), mixBox,
       h('p', { class: 'note' }, J.note))); }
 
+  // ---- university -> club (site/data/uni_journeys.json, model/uni_journeys.py)
+  { const UJ = await getJSON('uni_journeys.json').catch(() => null);
+    if (UJ) { const I = await index(); const onSite = new Set(I.players.map((p) => p.k));
+      const unis = Object.keys(UJ.unis), NM = (u) => u === 'kcl' ? 'KCL' : u[0].toUpperCase() + u.slice(1);
+      const frac = (s) => { const [a, b] = s.split('/').map(Number); return b ? `${a} of ${b} (${d3.format('.0%')(a / b)})` : '—'; };
+      let ca = 0, cb = 0, ua = 0, ub = 0;
+      unis.forEach((u) => { const [a, b] = UJ.unis[u].club_seen.split('/').map(Number), [c, d] = UJ.unis[u].uni_only_seen.split('/').map(Number); ca += a; cb += b; ua += c; ub += d; });
+      const st = { u: 'all', f: 'all' }, box = h('div');
+      const draw = () => { const L = unis.filter((u) => st.u === 'all' || u === st.u).flatMap((u) => UJ.people[u].map((p) => Object.assign({ u }, p)))
+          .filter((p) => st.f === 'all' || (st.f === 'club' ? (p.during || p.uni_club) : st.f === 'after' ? p.after : st.f === 'gb' ? p.gb : !(p.during || p.uni_club)));
+        box.replaceChildren(h('p', { class: 'note' }, `${L.length} players`), h('div', { class: 'tscroll' }, table(['Player', 'University', 'University seasons', 'Club while at university', 'Seen after university', 'Went to', 'GB'],
+          L.sort((a, b) => a.s1.localeCompare(b.s1) || a.n.localeCompare(b.n)).map((p) => ({ go: onSite.has(p.k) ? '#/p/' + enc(p.k) : null,
+            cells: [p.n, NM(p.u), p.s0 === p.s1 ? p.s0 : `${p.s0} to ${p.s1}`, p.during ? 'Yes' : p.uni_club ? 'With the university team' : '—', p.judged ? (p.after ? 'Yes' : 'Not yet seen') : 'Too soon', p.to.join(', ') || '—', p.gb ? 'GB' : ''] })), { num: [] }))); };
+      const seg = (opts, key) => h('div', { class: 'seg' }, ...opts.map(([k, l]) => h('button', { class: k === st[key] ? 'on' : null, onclick: (e) => { st[key] = k; e.target.parentNode.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === e.target)); draw(); } }, l)));
+      draw();
+      out.push(card('University → club', `Universities whose squads we hold by name (Instagram posts: ${unis.map(NM).join(', ')}). "Club while at university" means a club roster or club event during their university years, or the university team entering a club event (Open Tour, indoor qualifiers, Lemmings Luau); beginners events do not count. "Seen after" means any club, GB or community activity after the summer of their last university season. Only players whose last season ended before ${UJ.last_club_year} are judged.`,
+        tiles([['Played club while at university', frac(`${ca}/${cb}`), 'of those, seen in the sport after university'], ['University only', frac(`${ua}/${ub}`), 'seen in the sport after university'], ['Players on university squads', d3.sum(unis, (u) => UJ.unis[u].players), unis.length + ' universities'], ['With a GB appearance', d3.sum(unis, (u) => UJ.unis[u].gb), 'at any point']]),
+        h('div', { class: 'tscroll' }, table(['University', 'Players', 'Club while at university', 'Seen after: club players', 'Seen after: university only', 'Already playing club before', 'GB', 'Where they went (club teams after university)'],
+          unis.map((u) => { const s = UJ.unis[u]; return { cells: [h('b', null, NM(u)), s.players, s.club_during, frac(s.club_seen), frac(s.uni_only_seen), s.came_with_club, s.gb, s.destinations.slice(0, 5).map(([t, n]) => `${t} ${n}`).join(', ') || '—'] }; }), { num: [1, 2, 5, 6] })),
+        h('p', { class: 'note' }, 'Not proof of cause: keener players probably do both. Club rosters are patchy (indoor, beach and many smaller clubs are team-only), so some university-only players do play on where we cannot see names. Some strong university squads are largely club players already (Leeds women with SMOG and Horizon, Exeter with Bristol).'),
+        h('div', { class: 'controls' }, seg([['all', 'All universities'], ...unis.map((u) => [u, NM(u)])], 'u'), seg([['all', 'Everyone'], ['club', 'Played club at uni'], ['uni', 'University only'], ['after', 'Seen after'], ['gb', 'GB']], 'f')), box)); } }
+
   // ---- masters journeys
   { const st = { t: 'all', p: 'all' }, box = h('div'), barBox = h('div');
     const PATHS = ['GB senior before', 'GB youth before', 'Club before', 'Kit list / roster only before', 'First seen at masters'], PC = { 'GB senior before': C[0], 'GB youth before': C[5], 'Club before': C[2], 'Kit list / roster only before': C[6], 'First seen at masters': C[7] };
