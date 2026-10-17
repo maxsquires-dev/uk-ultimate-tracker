@@ -155,6 +155,9 @@ function dotRange(rows, o = {}) {
     g.append('text').attr('x', labW).attr('y', y + 4).attr('text-anchor', 'end').style('fill', css('--fg')).text(r.label);
     if (r.lo != null && r.hi != null) g.append('rect').attr('x', x(r.lo)).attr('y', y - 5).attr('width', Math.max(1, x(r.hi) - x(r.lo))).attr('height', 10).attr('rx', 5).attr('fill', r.color || COL()[0]).attr('fill-opacity', 0.25);
     onTip(g.append('circle').attr('cx', x(r.v)).attr('cy', y).attr('r', 5.5).attr('fill', r.color || COL()[0]).attr('stroke', css('--panel')).attr('stroke-width', 1.5), () => r.tip || [r.label, fmt(r.v)]);
+    if (r.v2 != null) { onTip(g.append('circle').attr('cx', x(r.v2)).attr('cy', y).attr('r', 5.5).attr('fill', o.second || '#9aa39a').attr('stroke', css('--panel')).attr('stroke-width', 1.5), () => r.tip || [r.label, fmt(r.v2)]);
+      g.append('text').attr('x', x(Math.min(r.v, r.v2)) - 9).attr('y', y + 4).attr('text-anchor', 'end').style('fill', css('--muted')).text(fmt(Math.min(r.v, r.v2)));
+      g.append('text').attr('x', x(Math.max(r.v, r.v2)) + 9).attr('y', y + 4).text(fmt(Math.max(r.v, r.v2))); return; }
     g.append('text').attr('x', x(r.hi != null ? Math.max(r.hi, r.v) : r.v) + 9).attr('y', y + 4).text(fmt(r.v)); });
   return box;
 }
@@ -477,9 +480,11 @@ ROUTES.p = async (k) => {
   const years = [...new Set([...rowsMap.values()].flatMap((r) => Object.keys(r.cells).map(Number)))].sort((a, b) => a - b);
   const rws = [...rowsMap.values()].sort((a, b) => a.first - b.first).map((r) => ({ label: r.label, go: r.go, cells: Object.fromEntries(Object.entries(r.cells).map(([y, c]) => [y, { color: c.color, tip: [r.label + ' · ' + y, ...c.tips.slice(0, 8)] }])) }));
   out.push(card('Career', 'Every team in the data, by season. Hover a square for the events.', presenceGrid(rws, years), legend([['Club', C[0]], ['GB squad', C[1]], ['Training player', C[2]], ['Overseas / other nation', C[3]], ['Secondary team or masters pickup', C[5]], ['Masters side', C[6]], ...((p.extra || []).some((x) => x.uni) ? [['University', '#8e5bb5']] : []), ...((p.extra || []).some((x) => !x.uni) ? [['Sessions, hats, beginners', '#9aa39a']] : [])])));
+  const URD = (p.extra || []).some((x) => x.uni) ? await getJSON('uni_rank.json').catch(() => null) : null, UR = URD && URD.people.find((x) => x.k === p.k), URN = URD && URD.n;
   if ((p.extra || []).length) { const X = p.extra.slice().reverse(); const U = X.filter((x) => x.uni), R = X.filter((x) => !x.uni);
     out.push(h('div', { class: 'grid2' },
-      U.length ? card('University', `${new Set(U.map((x) => x.season)).size} season${new Set(U.map((x) => x.season)).size > 1 ? 's' : ''} on ${[...new Set(U.map((x) => x.uni))].map((u) => u === 'kcl' ? 'KCL' : u[0].toUpperCase() + u.slice(1)).join(', ')} squads, from the university’s own posts.`,
+      U.length ? card('University', `${new Set(U.map((x) => x.season)).size} season${new Set(U.map((x) => x.season)).size > 1 ? 's' : ''} on ${[...new Set(U.map((x) => x.uni))].map((u) => u === 'kcl' ? 'KCL' : u[0].toUpperCase() + u.slice(1)).join(', ')} squads, from the university’s own posts.${UR ? ` University ranking: ${f0(UR.st)} (#${UR.r} of ${URN} university players; a separate scale from club Quality).` : ''}`,
+        UR ? table(['Season', 'Uni score', 'Team', 'Best results'], UR.seasons.slice().reverse().map((x) => ({ cells: [x.s, f0(x.q), x.team, x.why] })), { num: [1] }) : null,
         table(['Season', 'Event', 'Team', ''], U.map((x) => ({ go: '#/u/' + enc(x.uni), cells: [x.season, x.event, x.team, [x.captain ? 'C' : '', x.number ? '#' + x.number : ''].filter(Boolean).join(' ')] })), { max: '24rem' })) : null,
       R.length ? card('Sessions, hats and beginners events', 'Club sessions (allocations), hat tournaments and beginners events we hold names for. Not counted in Quality.',
         table(['Year', 'Event', 'Team', 'Status'], R.map((x) => ({ cells: [x.year, x.event, x.team || '—', x.status || 'played'] })), { max: '24rem' })) : null)); }
@@ -1567,7 +1572,13 @@ function findingChart(ch, C) {
   const fmtv = ch.yfmt === 'pct' ? pf : (v) => v == null ? '—' : d3.format('.1f')(v);
   if (ch.type === 'lines') return lineChart(ch.series.map((s, i) => ({ name: s.name, color: C[i % 8], w: s.w || 2, dash: s.dash ? '5 3' : null, pts: s.pts.filter((p) => p[1] != null).map((p) => ({ x: p[0], y: p[1], tip: [s.name + ' · ' + p[0], fmtv(p[1]) + (p[2] ? ` (n=${p[2]})` : '')] })) })), { W: 1000, H: 300, yDomain: ch.yfmt === 'pct' ? [0, 1] : null, yFmt: ch.yfmt === 'pct' ? d3.format('.0%') : null, legend: true, xLabel: ch.xlabel });
   if (ch.type === 'bars') return barChart(ch.rows.map((r) => Object.assign({ x: r.x }, ...ch.keys.map((k) => ({ [k.key]: r[k.key] })), { tip: r.n ? `n=${r.n}` : null })), ch.keys.map((k, i) => ({ key: k.key, name: k.name, color: C[i % 8] })), { W: 1000, H: 260, yFmt: ch.yfmt === 'pct' ? d3.format('.0%') : null, vFmt: ch.yfmt === 'pct' ? pf : null, stacked: false });
-  if (ch.type === 'grouped') { const box = h('div', { class: ch.keys.length > 2 ? 'grid3' : 'grid2' }); ch.keys.forEach((k, i) => box.append(h('div', null, h('h3', null, k.name), barChart(ch.rows.map((r) => ({ x: r.x, v: r[k.key], tip: r.n ? `n=${(r.n || {})[k.key] ?? '—'}` : null })), [{ key: 'v', name: k.name, color: C[i % 8] }], { W: ch.keys.length > 2 ? 330 : 480, H: 220, yFmt: ch.yfmt === 'pct' ? d3.format('.0%') : null, vFmt: ch.yfmt === 'pct' ? pf : null })))); return box; }
+  if (ch.type === 'grouped' && ch.rows.some((r) => r.n && r.n.club != null && r.n.uni != null)) {   // two shares per group: a dumbbell, with the n beside it
+    const pf2 = d3.format('.0%');
+    return h('div', null, h('p', { class: 'note' }, `Each row is a university. Green dot: share of leavers who ${ch.keys[0].name.toLowerCase()} and are seen playing after university; grey dot: the same for ${ch.keys[1].name.toLowerCase()}. The gap between them is the difference. n = leavers we can judge.`),
+      dotRange(ch.rows.map((r) => ({ label: `${r.x} (n ${r.n.club} / ${r.n.uni})`, v: r.club, lo: Math.min(r.club, r.uni), hi: Math.max(r.club, r.uni), color: C[2], v2: r.uni,
+        tip: [r.x, `${ch.keys[0].name}: ${pf2(r.club)} of ${r.n.club} seen after`, `${ch.keys[1].name}: ${pf2(r.uni)} of ${r.n.uni} seen after`] })), { W: 1000, labW: 240, xDomain: [0, 1], fmt: pf2, second: '#9aa39a' })); }
+  if (ch.type === 'grouped') { return h('div', null, barChart(ch.rows, ch.keys.map((k, i) => ({ key: k.key, name: k.name, color: C[i % 8] })), { W: 1000, H: 260, grouped: true, yFmt: ch.yfmt === 'pct' ? d3.format('.0%') : null, xLab: ch.xlabel })); }
+  if (false) { const box = h('div', { class: ch.keys.length > 2 ? 'grid3' : 'grid2' }); ch.keys.forEach((k, i) => box.append(h('div', null, h('h3', null, k.name), barChart(ch.rows.map((r) => ({ x: r.x, v: r[k.key], tip: r.n ? `n=${(r.n || {})[k.key] ?? '—'}` : null })), [{ key: 'v', name: k.name, color: C[i % 8] }], { W: ch.keys.length > 2 ? 330 : 480, H: 220, yFmt: ch.yfmt === 'pct' ? d3.format('.0%') : null, vFmt: ch.yfmt === 'pct' ? pf : null })))); return box; }
   if (ch.type === 'hbars') return hbars(ch.rows.filter((r) => r.v != null).map((r, i) => ({ label: r.label, v: r.v, color: C[0], tip: [r.label, (ch.yfmt === 'pct' ? pf(r.v) : d3.format('.1f')(r.v)) + (r.n ? ` · n=${r.n}` : '') + (r.sub ? ' · ' + r.sub : '')] })), { W: 1000, labW: 400, maxLab: 62, fmt: ch.yfmt === 'pct' ? pf : d3.format('.1f') });
   if (ch.type === 'table') return table(ch.head, ch.rows.map((r) => ({ cells: r.map((v, i) => { const f = (ch.fmt || [])[i]; return f === 'pct' ? pf(v) : f === 'sgn' ? sgn1(v) : v == null ? '—' : v; }) })), { num: ch.head.map((_, i) => i).filter((i) => i > 0) });
   if (ch.type === 'scatter') { const gcol = (g) => ({ Senior: C[0], U24: C[1], Junior: C[2], Other: C[7] }[g] || C[0]);
@@ -1602,7 +1613,16 @@ function questionBank(B, onFinding) {
 ROUTES.findings = async () => {
   const D = await getJSON('findings.json'); const C = COL();
   const st = { level: 'All' }; const list = h('div');
-  const draw = () => { list.replaceChildren(...D.findings.filter((f) => st.level === 'All' || f.level === st.level).map((f) => {
+  const TOPIC = { base_rate: 'Retention and dropout', survival: 'Retention and dropout', who_leaves: 'Retention and dropout', peak_leave: 'Retention and dropout', dose: 'How much people play', event_mix: 'How much people play', event_level: 'How much people play',
+    moves_survival: 'Moves and careers', div_switch: 'Moves and careers', talent_flow: 'Moves and careers', gb_composition: 'GB', age_proxy: 'GB', gb_retention: 'GB', uni_club: 'University and pathway', funnel: 'University and pathway', spirit: 'Spirit' };
+  const TOPICS = ['Retention and dropout', 'How much people play', 'Moves and careers', 'University and pathway', 'GB', 'Spirit', 'Other'];
+  const draw = () => { const F = D.findings.filter((f) => st.level === 'All' || f.level === st.level || TOPIC[f.id] === st.level);
+    list.replaceChildren(...TOPICS.map((tp) => { const G = F.filter((f) => (TOPIC[f.id] || 'Other') === tp); if (!G.length) return null;
+      return h('section', null, h('h2', { class: 'sect' }, `${tp} (${G.length})`),
+        h('div', { class: 'grid2' }, ...G.map((f) => { const g = GRADE[f.grade] || [f.grade, ''];
+          return h('a', { class: 'fsum', href: '#/findings', onclick: (e) => { e.preventDefault(); const el = document.getElementById('f-' + f.id); el.open = true; el.scrollIntoView({ behavior: 'smooth', block: 'start' }); } },
+            h('span', { class: 'fgrade ' + f.grade }, g[0]), ' ', h('b', null, f.q), h('div', { class: 'note' }, (f.result || '').split(/(?<=\.)\s/)[0])); }))); }).filter(Boolean),
+      h('h2', { class: 'sect' }, 'In full'), ...F.map((f) => {
     const g = GRADE[f.grade] || [f.grade, ''];
     const el = card(null, null,
       h('div', { class: 'fhead' }, h('span', { class: 'fgrade ' + f.grade, 'data-tip': JSON.stringify(['Evidence: ' + g[0], g[1]]) }, g[0]), h('span', { class: 'flevel' }, f.level + ' · ' + f.group), f.n ? h('span', { class: 'flevel' }, 'n = ' + d3.format(',')(f.n)) : null),
@@ -1616,15 +1636,15 @@ ROUTES.findings = async () => {
         h('p', null, h('b', null, 'Method. '), f.method),
         h('p', null, h('b', null, 'Could also be explained by: ')), h('ul', null, f.confounds.map((c) => h('li', null, c))),
         h('p', null, h('b', null, 'Data that would settle it: ')), h('ul', null, f.gaps.map((c) => h('li', null, c)))));
-    el.id = 'f-' + f.id; return el; })); };
+    const det = h('details', { class: 'fdet' }, h('summary', null, h('span', { class: 'fgrade ' + f.grade }, (GRADE[f.grade] || [f.grade])[0]), ' ', h('b', null, f.q), h('span', { class: 'muted' }, '  · ' + (TOPIC[f.id] || 'Other'))), el); det.id = 'f-' + f.id; return det; })); };
   draw();
   return [h('h1', null, 'Findings'), h('p', { class: 'sub' }, `What the data can and cannot say about retention, careers, clubs and GB. Each finding is a question, a hypothesis, the test, the result and an honest grade. Built ${D.built} from seasons up to ${D.now}. Nothing here feeds player or team scores.`),
     D.bank ? h('p', null, h('a', { href: '#/findings', onclick: (e) => { e.preventDefault(); document.getElementById('questions').scrollIntoView({ behavior: 'smooth', block: 'start' }); } }, `Jump to the ${D.bank.questions.length} questions we are trying to answer ↓`), h('span', { class: 'muted' }, ` (${D.bank.questions.filter((q) => q.status === 'answered').length} answered, ${D.bank.questions.filter((q) => q.status === 'partly').length} partly, ${D.bank.questions.filter((q) => q.status === 'needs data').length} need data)`)) : null,
-    card(null, null, h('div', { class: 'controls' }, h('div', { class: 'seg' }, ...['All', 'Community', 'Club', 'GB'].map((l) => h('button', { class: l === st.level ? 'on' : null, onclick: (e) => { st.level = l; e.target.parentNode.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === e.target)); draw(); } }, l))),
+    card(null, null, h('div', { class: 'controls' }, h('div', { class: 'seg' }, ...['All', 'Retention and dropout', 'How much people play', 'Moves and careers', 'University and pathway', 'GB', 'Spirit'].map((l) => h('button', { class: l === st.level ? 'on' : null, onclick: (e) => { st.level = l; e.target.parentNode.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === e.target)); draw(); } }, l))),
       h('span', { class: 'note' }, 'Grades: ', ...Object.entries(GRADE).flatMap(([k, [n, d]], i) => [i ? ' · ' : '', h('span', { class: 'fgrade ' + k }, n), ' ' + d]))),
       h('details', null, h('summary', null, 'Definitions used throughout'), h('pre', { class: 'defs' }, D.defs))),
     list,
-    questionBank(D.bank, (id) => { st.level = 'All'; draw(); const el = document.getElementById('f-' + id); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }),
+    questionBank(D.bank, (id) => { st.level = 'All'; draw(); const el = document.getElementById('f-' + id); if (el) { el.open = true; } if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }),
     card('Questions we cannot answer yet', 'Each of these is a standard question in participation and talent-development research. The data to answer it does not exist in what we hold; the right-hand column is what would.',
       table(['Question', 'Why not', 'What would answer it'], D.cannot.map((c) => ({ cells: [h('b', null, c.q), c.why, c.need] })))),
     card('Who to ask', 'The findings point at specific groups a short survey would learn most from. Each list is already on this site.',
@@ -1783,6 +1803,15 @@ ROUTES.uni = async () => {
         ujBars(UJ, ids, nm), h('h3', null, 'Where their players go after university'), h('p', { class: 'note' }, 'Club teams the leavers play for, counted once per player.'), ujDest(UJ, ids, nm),
         h('h3', null, 'Squad flow'), h('p', { class: 'note' }, 'Each column is a season; blocks are intakes; leavers are coloured by whether we see them playing after university.'), h('div', { class: 'controls' }, sel), flowBox,
         h('p', { class: 'note' }, ids.map((i) => h('a', { href: '#/u/' + enc(i), style: 'margin-right:12px' }, nm(i) + ' →'))))); } }
+  { const R = await getJSON('uni_rank.json').catch(() => null);
+    if (R) { const st = { q: '', u: '' }, box = h('div'), us = [...new Set(R.people.flatMap((x) => x.u))].sort();
+      const draw = () => { const L = R.people.filter((x) => (!st.q || x.n.toLowerCase().includes(st.q)) && (!st.u || x.u.includes(st.u)));
+        box.replaceChildren(table(['#', 'Player', 'University', 'Uni score', 'Seasons', 'Latest team', 'Best result latest season'], L.slice(0, 300).map((x) => { const l = x.seasons[x.seasons.length - 1];
+          return { go: '#/p/' + enc(x.k), cells: [x.r, h('b', null, x.n), x.u.map((u) => u === 'kcl' ? 'KCL' : u[0].toUpperCase() + u.slice(1)).join(', '), f0(x.st), x.seasons.length, `${l.team} ${l.s}`, l.why.split(';')[0]] }; }), { num: [0, 3, 4], max: '36rem' })); };
+      draw();
+      out.push(card('University player ranking', 'University players ranked against each other only, never against club players (university ultimate sits below U20 level). Each season: 80% the best result of a team the player was on the squad for (Div 1 nationals count most, then Div 2, Div 3 / Shield, then regionals; outdoor in full, indoor ×0.85, beach ×0.6; the season’s best result = 100), 20% how many events they played (up to 5). No individual stats exist, so there is no production component. The score is a recency-weighted mean of seasons, pulled down a little for players with one season. Only the ' + us.length + ' universities with named squads are covered. Click a player.',
+        h('div', { class: 'controls' }, h('input', { type: 'search', placeholder: 'Find a player', oninput: (e) => { st.q = e.target.value.trim().toLowerCase(); draw(); } }),
+          h('select', { onchange: (e) => { st.u = e.target.value; draw(); } }, h('option', { value: '' }, 'All universities'), ...us.map((u) => h('option', { value: u }, u === 'kcl' ? 'KCL' : u[0].toUpperCase() + u.slice(1))))), box)); } }
   // champions grid
   const ch = new Map(U.champs.map((c) => [c[0] + '|' + c[1] + '|' + c[2], c]));
   const uid = new Map(U.unis.map((u) => [u.n, u.id]));
@@ -1931,8 +1960,8 @@ function spiritStrip(ev, o = {}) {
   return box;
 }
 // card for one club or university
-async function spiritCard(entityKey, name) {
-  const SP = await spirit(); if (!SP) return null; const ev = SP.series[entityKey]; if (!ev || !ev.length) return null;
+async function spiritCard(entityKey, name, div) {
+  const SP = await spirit(); if (!SP) return null; const ev = (SP.series[entityKey] || []).filter((e) => !div || e.d === div); if (!ev.length) return null;
   const allMean = d3.mean(SP.kinds, (k) => k.mean), q1 = d3.mean(SP.kinds, (k) => k.q1), q3 = d3.mean(SP.kinds, (k) => k.q3);
   const rec = ev.map((e) => e.r), g = ev.filter((e) => e.g != null);
   const best = ev.reduce((a, b) => (b.r > a.r ? b : a)), worst = ev.reduce((a, b) => (b.r < a.r ? b : a));
@@ -2414,3 +2443,70 @@ ROUTES.method = async () => [h('h1', null, 'How it works'),
     h('li', null, 'Coverage grows each year, so counts of players rise partly because more was collected, not only because more people play.'),
     h('li', null, 'Rosters on ultimate-reference.com before about 2017 are often incomplete, and some Ultimate Central rosters are hidden by players’ privacy settings; those are respected.'),
     h('li', null, 'Names are matched carefully but a few same-name players may remain; open questions are listed under Data checks.')))];
+
+// ---------- additions 17 Oct (Max): team spirit, player spirit, spirit explorer ----------
+const CATN5 = { rules: 'Rules knowledge', fouls: 'Fouls and body contact', fair: 'Fair-mindedness', attitude: 'Attitude and self-control', comm: 'Communication' };
+{ const base = ROUTES.t; ROUTES.t = async (id) => { const out = await base(id); const ix = (await index()).teams.find((x) => x.id === id);
+    if (ix && ix.c) { const sc = await spiritCard('club:' + ix.c, ix.n, ix.d); if (sc) out.push(sc); }
+    const uo = ix ? await uniOrigins(ix.c, ix.n, ix.d) : null; if (uo) out.push(uo); return out; }; }
+{ const base = ROUTES.c; ROUTES.c = async (id) => { const out = await base(id); const uo = await uniOrigins(id); if (uo) out.push(uo); return out; }; }
+{ const base = ROUTES.p; ROUTES.p = async (k) => { const out = await base(k); const ix = (await index()).players.find((x) => x.k === k); if (!ix) return out;
+    const rec = (await getJSON('p/' + String(ix.b).padStart(2, '0') + '.json'))[k]; const S = rec && rec.spirit; if (!S || !S.length) return out;
+    const SP = await spirit(); const allMean = SP ? d3.mean(SP.kinds, (q) => q.mean) : 10.3, C = COL(), sel = { y: S[S.length - 1].y }, box = h('div');
+    const drawY = () => { const r = S.find((x) => x.y === sel.y); box.replaceChildren(h('h3', null, `${r.y}: ${f1(r.total)} over ${r.n} team-events (${r.teams.join(', ')})`),
+      dotRange(Object.keys(CATN5).map((c) => ({ label: CATN5[c], v: r[c], color: C[0], tip: [CATN5[c], d3.format('.2f')(r[c]) + ' out of 4'] })), { W: 1000, labW: 220, xDomain: [1.5, 2.8], ref: 2, fmt: d3.format('.2f') }),
+      table(['Event', 'Team', 'Received'], r.ev.map((e) => ({ cells: [e[0], e[1], f1(e[2])] })), { num: [2], max: '18rem' })); };
+    drawY();
+    const _ci = out.findIndex((n) => n && n.textContent && /^Career/.test((n.querySelector && n.querySelector('h2') || {}).textContent || '')); out.splice(_ci >= 0 ? _ci + 2 : out.length, 0, card('Spirit over time', `Every spirit score given to a team ${ix.n} was on that year (club or university, same division), averaged, as agreed: a player shares their team’s scores. Career average ${f1(ix.sp)}; all teams average ${f1(allMean)}. Click a year for the five categories and the events. Beach and indoor only count where we hold that roster.`,
+      lineChart([{ name: ix.n, color: C[0], w: 3, pts: S.map((x) => ({ x: x.y, y: x.total, tip: [String(x.y), `${f1(x.total)} average over ${x.n} team-events`, x.teams.join(', '), 'click for detail'], onclick: () => { sel.y = x.y; drawY(); } })) },
+        { name: 'All teams', color: '#9aa39a', w: 1.5, pts: S.map((x) => ({ x: x.y, y: allMean })) }], { W: 1000, H: 220, yDomain: [8.5, 13], xs: S.map((x) => x.y), labels: true }),
+      h('div', { class: 'seg' }, ...S.map((x) => h('button', { class: x.y === sel.y ? 'on' : null, onclick: (e) => { sel.y = x.y; e.target.parentNode.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === e.target)); drawY(); } }, String(x.y)))), box));
+    return out; }; }
+{ const base = ROUTES.spirit; ROUTES.spirit = async () => { const out = await base(); const Q = await getJSON('spirit_cube.json').catch(() => null); if (!Q) return out;
+    const st = { dim: 'age', cat: 'total', pick: null }, box = h('div'), C = COL();
+    const DIMS = [['age', 'Age group'], ['kind', 'Kind of event'], ['division', 'Division'], ['format', 'Format'], ['season', 'Season']];
+    const CK = [['total', 'Total (of 20)'], ...Object.entries(CATN5)];
+    const val = (r) => r[st.cat], fmt = (v) => st.cat === 'total' ? f1(v) : d3.format('.2f')(v);
+    const dom = () => { const all = [...Q.dims[st.dim], ...Q.events].map(val); return [d3.min(all) - (st.cat === 'total' ? 0.3 : 0.05), d3.max(all) + (st.cat === 'total' ? 0.3 : 0.05)]; };
+    const draw = () => { const R = Q.dims[st.dim].slice().sort((a, b) => val(b) - val(a)); const kids = [];
+      kids.push(h('p', { class: 'note' }, `${CK.find((c) => c[0] === st.cat)[1]} by ${DIMS.find((d) => d[0] === st.dim)[1].toLowerCase()}. Click a bar to see all five categories for it and its events.`));
+      kids.push(hbars(R.map((r) => ({ label: r.v, v: +fmt(val(r)), color: r.v === st.pick ? C[1] : C[0], tip: [r.v, `${fmt(val(r))} · ${r.n} team-events`, 'click for the five categories'], onclick: () => { st.pick = r.v; draw(); } })), { W: 1000, labW: 200, xDomain: st.cat === 'total' ? [9, 13] : [1.6, 2.8], fmt }));
+      const P = R.find((r) => r.v === st.pick);
+      if (P) { const key = { age: 'a', kind: 'k', division: 'd', format: 'f', season: 's' }[st.dim]; const E = Q.events.filter((e) => (e[key] || 'Not given') === P.v).sort((a, b) => val(b) - val(a));
+        kids.push(h('h3', null, `${P.v}: the five categories`), dotRange(Object.keys(CATN5).map((c) => ({ label: CATN5[c], v: P[c], color: C[1], tip: [CATN5[c], `${d3.format('.2f')(P[c])} here, ${d3.format('.2f')(d3.mean(Q.dims[st.dim], (r) => r[c]))} across all ${DIMS.find((d) => d[0] === st.dim)[1].toLowerCase()}s`] })), { W: 1000, labW: 220, xDomain: [1.6, 2.8], ref: 2, fmt: d3.format('.2f') }),
+          h('h3', null, `Events (${E.length}), by ${CK.find((c) => c[0] === st.cat)[1].toLowerCase()}`),
+          table(['Season', 'Event', 'Division', 'Teams', 'Total', 'Rules', 'Fouls', 'Fair', 'Attitude', 'Comm.'], E.map((e) => ({ cells: [e.s, e.ev, e.d || '—', e.n, f1(e.total), ...Object.keys(CATN5).map((c) => d3.format('.2f')(e[c]))] })), { num: [3, 4, 5, 6, 7, 8, 9], max: '26rem' })); }
+      box.replaceChildren(...kids); };
+    const seg = (opts, keyName) => h('div', { class: 'seg' }, ...opts.map(([k, l]) => h('button', { class: k === st[keyName] ? 'on' : null, onclick: (e) => { st[keyName] = k; if (keyName === 'dim') st.pick = null; e.target.parentNode.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === e.target)); draw(); } }, l)));
+    draw();
+    out.splice(3, 0, card('Explore spirit by group and category', 'Pick a grouping and a category. Each bar is the average received per team-event. Click one (say Masters) for all five categories and every event in it; switch the category (say Rules knowledge) to rank groups and events on that alone.',
+      h('div', { class: 'controls' }, seg(DIMS, 'dim')), h('div', { class: 'controls' }, seg(CK, 'cat')), box));
+    return out; }; }
+let UOJ = null;
+async function uniOrigins(clubId, teamName, div) {
+  if (!clubId) return null; const D = await (UOJ || (UOJ = getJSON('uni_origins.json').catch(() => null))); if (!D) return null;
+  const M = div ? D.teams[clubId + '|' + div] : D.clubs[clubId]; if (!M) return null;
+  const I = await index(), nm = new Map(I.players.map((p) => [p.k, p.n])), C = COL(), UN = (u) => u === 'kcl' ? 'KCL' : u[0].toUpperCase() + u.slice(1);
+  const R = Object.entries(M).map(([u, v]) => ({ u, b: v[0], d: v[1], a: v[2], keys: v[3], n: v[0] + v[1] + v[2] })).sort((x, y) => y.n - x.n), box = h('div');
+  const show = (r) => box.replaceChildren(h('h3', null, `${UN(r.u)}: ${r.n} player${r.n > 1 ? 's' : ''}`), h('p', null, ...[...new Set(r.keys)].flatMap((k, i) => [i ? ', ' : '', h('a', { href: '#/p/' + enc(k) }, nm.get(k) || k)])));
+  return card('University pathway into ' + (div ? teamName : 'this club'), `Players ${div ? 'on this team' : 'at this club'} who were also on a university squad we hold by name (only ${[...new Set(Object.values(D.clubs).flatMap((x) => Object.keys(x)))].map(UN).join(', ')} so far, so most universities are missing). Timing is against their first season here: university before joining, during, or after (for example youth → club → university). Click a bar for the players.`,
+    hbars(R.flatMap((r) => [['before', r.b, C[0], 'university before joining'], ['during', r.d, C[1], 'at university while playing here'], ['after', r.a, C[2], 'university after first playing here']].filter((x) => x[1]).map(([t, v, col, lab]) => ({ label: `${UN(r.u)} · ${t}`, v, color: col, tip: [UN(r.u), `${v} ${lab}`], onclick: () => show(r) }))), { W: 1000, labW: 200, fmt: (v) => v + ' players' }), box);
+}
+let JRJ = null; const journeys = () => JRJ || (JRJ = getJSON('journeys.json').catch(() => null));
+const JCOL = { Youth: '#e08a2c', University: '#8e5bb5', Club: '#2b55a8', 'GB U24': '#2a9d8f', 'GB senior': '#c0392b', Masters: '#7f8c8d' };
+{ const base = ROUTES.p; ROUTES.p = async (k) => { const out = await base(k); const J = await journeys(); const st = J && J.people[k]; if (!st || !st.length) return out;
+    const y0 = d3.min(st, (s) => s[1]), y1 = d3.max(st, (s) => s[2]), W = 1000, rh = 26, lab = 110, H = st.length * rh + 30, { box, svg } = svgBox(W, H);
+    const x = d3.scaleLinear([y0 - 0.5, y1 + 0.5], [lab, W - 20]);
+    svg.append('g').attr('transform', `translate(0,${H - 22})`).call(d3.axisBottom(x).ticks(Math.min(12, y1 - y0 + 1)).tickFormat(d3.format('d'))).call((g) => g.select('.domain').remove());
+    st.forEach((s, i) => { const y = i * rh + 4; svg.append('text').attr('x', lab - 8).attr('y', y + 15).attr('text-anchor', 'end').style('fill', css('--fg')).text(s[0]);
+      onTip(svg.append('rect').attr('x', x(s[1] - 0.45)).attr('y', y + 3).attr('width', x(s[2] + 0.45) - x(s[1] - 0.45)).attr('height', 16).attr('rx', 4).attr('fill', JCOL[s[0]]), () => [s[0], s[1] === s[2] ? String(s[1]) : `${s[1]}–${s[2]}`]); });
+    const ci = out.findIndex((n) => n && n.querySelector && /^Career/.test((n.querySelector('h2') || {}).textContent || ''));
+    out.splice(ci >= 0 ? ci : 2, 0, card('Journey', `The order ${(await index()).players.find((p) => p.k === k)?.n || 'they'} reached each stage: ${st.map((s) => s[0] + ' ' + s[1]).join(' → ')}. Youth = junior events and GB U17/U20; Club = tour, nationals and international club events (not kit lists or sessions); University = named university squads. Bars run from first to last season seen at that stage.`, box));
+    return out; }; }
+{ const base = ROUTES.trends; ROUTES.trends = async () => { const out = await base(); const J = await journeys(); if (!J) return out; const I = await index(), nm = new Map(I.players.map((p) => [p.k, p.n])), C = COL(), box = h('div');
+    const st = { f: 'all' }; const draw = () => { const P = J.patterns.filter(([p]) => st.f === 'all' || p.includes(st.f)).slice(0, 20);
+      box.replaceChildren(hbars(P.map(([p, n, ks]) => ({ label: p, v: n, color: C[0], tip: [p, n + ' people'], onclick: () => sel.replaceChildren(h('h3', null, `${p}: ${n} people`), h('p', null, ...ks.slice(0, 300).flatMap((k, i) => [i ? ', ' : '', h('a', { href: '#/p/' + enc(k) }, nm.get(k) || k)]))) })), { W: 1000, labW: 380, fmt: (v) => v + ' people' })); };
+    const sel = h('div'); draw();
+    out.push(card('Journeys: the order people reach each stage', `Every person with two or more stages, grouped by the order they first reached them (${J.order.join(', ')}). The data starts at different years for different sources (masters squads and GB history go back further than club rosters), so some orders, like Masters → Club, are an artefact of coverage rather than real careers. Click a bar for the people; filter to journeys that include a stage.`,
+      h('div', { class: 'controls' }, h('div', { class: 'seg' }, ...[['all', 'All'], ...J.order.map((o) => [o, o])].map(([k, l]) => h('button', { class: k === st.f ? 'on' : null, onclick: (e) => { st.f = k; e.target.parentNode.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === e.target)); sel.replaceChildren(); draw(); } }, l)))), box, sel));
+    return out; }; }

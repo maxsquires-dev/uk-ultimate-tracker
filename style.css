@@ -213,3 +213,6 @@ h2.sect { margin: 30px 0 4px; font-family: "Barlow Condensed", sans-serif; font-
 .newtag { display: inline-block; margin-left: 8px; padding: 0 7px; border-radius: 999px; background: var(--uku-red); color: #fff; font: 600 11px/18px var(--font); letter-spacing: .04em; vertical-align: middle; cursor: help; }
 .navnew { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--uku-red); margin-left: 5px; vertical-align: 2px; }
 .wnlist { margin: 4px 0 6px; padding-left: 20px; } .wnlist li { margin: 3px 0; }
+
+.fsum{display:block;padding:10px 12px;border:1px solid var(--line,#ddd);border-radius:8px;color:inherit;text-decoration:none}.fsum:hover{border-color:var(--accent,#2b55a8)}
+.fdet{margin:8px 0}.fdet>summary{cursor:pointer;padding:10px 12px;border:1px solid var(--line,#ddd);border-radius:8px;background:var(--panel,#fff)}
