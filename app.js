@@ -332,7 +332,7 @@ const MPCTL = h('div', { class: 'mpctl', title: 'Show only female-matching or ma
 document.querySelector('header.top').insertBefore(MPCTL, document.querySelector('header.top .search'));
 const mpNote = () => MP ? h('p', { class: 'note mpnote' }, `Showing ${MP === 'F' ? 'FMP' : 'MMP'} players only. `, h('a', { href: '#', onclick: (e) => { e.preventDefault(); MPCTL.querySelectorAll('.chip')[0].click(); } }, 'Show everyone')) : null;
 const CMP = (() => { let s = []; try { s = JSON.parse(localStorage.getItem('cmp') || '[]'); } catch (e) {} return { list: () => s, has: (k) => s.includes(k), toggle(k) { s = s.includes(k) ? s.filter((x) => x !== k) : [...s, k].slice(-5); try { localStorage.setItem('cmp', JSON.stringify(s)); } catch (e) {} }, clear() { s = []; try { localStorage.setItem('cmp', '[]'); } catch (e) {} } }; })();
-const CTX_COL = (tt) => /Overseas|Other national/i.test(tt) ? COL()[3] : /GB|national/i.test(tt) ? COL()[1] : /Training/i.test(tt) ? COL()[2] : /Masters/i.test(tt) ? COL()[6] : /Secondary|second/i.test(tt) ? COL()[5] : COL()[0];
+const CTX_COL = (tt) => /Overseas|Other national/i.test(tt) ? COL()[3] : /GB|national/i.test(tt) ? COL()[1] : /Training/i.test(tt) ? COL()[2] : /Pickup for a masters/i.test(tt) ? COL()[5] : /Masters/i.test(tt) ? COL()[6] : /Secondary|second/i.test(tt) ? COL()[5] : COL()[0];
 
 // ---------- home ----------
 ROUTES[''] = async () => {
@@ -447,7 +447,7 @@ ROUTES.p = async (k) => {
   p.gb.forEach((g) => { const r = rowsMap.get(g.team); if (!(r && r.cells[g.year])) add(g.team, g.year, 'GB', `${g.team} ${g.year}${g.place ? ' · ' + ord(g.place) : ''}`, '#/g/' + enc(g.line)); else if (!r.go) r.go = '#/g/' + enc(g.line); });   // every GB squad-season, even when the squad already has a row
   const years = [...new Set([...rowsMap.values()].flatMap((r) => Object.keys(r.cells).map(Number)))].sort((a, b) => a - b);
   const rws = [...rowsMap.values()].sort((a, b) => a.first - b.first).map((r) => ({ label: r.label, go: r.go, cells: Object.fromEntries(Object.entries(r.cells).map(([y, c]) => [y, { color: c.color, tip: [r.label + ' · ' + y, ...c.tips.slice(0, 8)] }])) }));
-  out.push(card('Career', 'Every team in the data, by season. Hover a square for the events.', presenceGrid(rws, years), legend([['Club', C[0]], ['GB squad', C[1]], ['Training player', C[2]], ['Overseas / other nation', C[3]], ['Secondary team', C[5]], ['Masters side', C[6]]])));
+  out.push(card('Career', 'Every team in the data, by season. Hover a square for the events.', presenceGrid(rws, years), legend([['Club', C[0]], ['GB squad', C[1]], ['Training player', C[2]], ['Overseas / other nation', C[3]], ['Secondary team or masters pickup', C[5]], ['Masters side', C[6]]])));
   // GB
   if (p.gb.length) out.push(card('GB squads', null, table(['Year', 'Squad', 'Finish', 'Club then', 'GB squad no.'], p.gb.map((g) => ({ go: '#/g/' + enc(g.line), cells: [g.year, g.team, ord(g.place), g.club || '—', ord(g.caps)] })), { num: [0, 4] })));
   // stats + events
