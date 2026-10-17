@@ -1717,11 +1717,24 @@ ROUTES.uni = async () => {
   const U = await getJSON('uni.json'); const C = COL(); const S = U.seasons, last = S[S.length - 1];
   const bys = U.by_season;
   const out = [h('h1', null, 'Universities'), h('p', { class: 'sub' }, `University ultimate from the UKU / BUCS event schedules: indoor regionals and nationals (Mixed, Men’s, Women’s, Div 1 and Div 2), outdoor nationals (Championship, Trophy, Shield), Mixed outdoor and beach, ${S[0]} to ${last}. ${U.coverage.results} team finishes from ${U.coverage.sheets} published schedule sheets.`),
-    h('p', { class: 'mpnote' }, 'Teams only, no players: BUCS and UKU university rosters are not published. UKU collects them through JustGo for every university nationals, so a roster export from UKU would link university players to the club data (see Findings → questions we cannot answer yet).')];
+    h('p', { class: 'mpnote' }, 'Mostly teams only: BUCS and UKU university rosters are not published. Five universities’ squads are held by name from their own posts (below); UKU collects every university nationals roster through JustGo, and an export would link all of them to the club data.')];
   const L = bys[bys.length - 1];
   out.push(tiles([['Universities ' + last, L.unis, 'with at least one team at a UKU / BUCS event'], ['Team entries ' + last, L.teams, 'each team counted once per competition'], ['Indoor teams ' + last, (L['Indoor|Mixed'] || 0) + (L['Indoor|Men'] || 0) + (L['Indoor|Women'] || 0), `Mixed ${L['Indoor|Mixed'] || 0} · Men ${L['Indoor|Men'] || 0} · Women ${L['Indoor|Women'] || 0}`], ['National titles', U.champs.length, 'Div 1 national champions in the data']]));
   out.push(card('How many university teams play', 'Distinct teams at each season’s events (indoor counts every team entered at regionals; outdoor counts teams at nationals). 2021-22 indoor is missing: no schedules were published for that season.',
     barChart(bys.map((b) => ({ x: b.s, mx: b['Indoor|Mixed'], mn: b['Indoor|Men'], wo: b['Indoor|Women'] })), [{ key: 'mx', name: 'Indoor Mixed', color: C[0] }, { key: 'mn', name: 'Indoor Men', color: C[1] }, { key: 'wo', name: 'Indoor Women', color: C[2] }], { W: 1000, H: 240 })));
+  // universities with named squads (Instagram posts): squad flow for one at a time, and the before / during / after summary
+  { const UJ = await getJSON('uni_journeys.json').catch(() => null);
+    if (UJ) { const ids = Object.keys(UJ.unis), nm = (i) => (U.unis.find((x) => x.id === i) || { n: i }).n, I = await index(), flowBox = h('div');
+      const sel = h('select', { onchange: () => drawF() }, ids.map((i) => h('option', { value: i }, nm(i))));
+      const drawF = () => { const P = UJ.people[sel.value], ss = [...new Set(P.flatMap((p) => p.ys))].sort();
+        flowBox.replaceChildren(ss.length >= 2 ? squadFlow(P.map((p) => ({ k: p.k, n: p.n, ys: p.ys.slice().sort() })), ss, { index: I }) : h('p', { class: 'note' }, 'Only one season of squads held.'),
+          h('p', { class: 'note' }, h('a', { href: '#/u/' + enc(sel.value) }, `${nm(sel.value)}: before, during and after university, clubs connected, every player →`))); };
+      drawF();
+      const tot = (k) => ids.reduce((a, i) => a + UJ.unis[i][k], 0);
+      out.push(card('Universities with named squads', `For ${ids.length} universities we hold squads by name, from their own posts. That links university players to club, GB and community data before, during and after university. Click a university for the full picture.`,
+        table(['University', 'Seasons', 'Players', 'GB at any point', 'Youth GB before', 'Already playing club before', 'Club while at university', 'Seen after: club players', 'Seen after: university only', 'Went on to'],
+          ids.map((i) => { const s = UJ.unis[i]; return { go: '#/u/' + enc(i), cells: [h('b', null, nm(i)), `${s.seasons[0]} to ${s.seasons[s.seasons.length - 1]}`, s.players, s.gb, s.gb_youth_before, s.came_with_club, s.club_during, s.club_seen.replace('/', ' of '), s.uni_only_seen.replace('/', ' of '), s.destinations.slice(0, 3).map(([t]) => t).join(', ') || '—'] }; }), { num: [2, 3, 4, 5, 6] }),
+        h('h3', null, 'Squad flow'), h('div', { class: 'controls' }, sel), flowBox)); } }
   // champions grid
   const ch = new Map(U.champs.map((c) => [c[0] + '|' + c[1] + '|' + c[2], c]));
   const uid = new Map(U.unis.map((u) => [u.n, u.id]));
@@ -1765,9 +1778,53 @@ ROUTES.u = async (id) => {
   out.push(card('Best finish each season', 'Best team in each competition, with how many other teams the university entered. Gold, silver and bronze mark national podiums. Hover for every team’s result.',
     table(['Competition', ...S], UCOMP.filter(([f, d]) => u.res.some((r) => r[1] === f && r[2] === d)).map(([f, d]) => ({ cells: [`${f} ${d}`, ...cells(f, d)] })))));
   out.push(card('Every result', null, table(['Season', 'Competition', 'Stage', 'Team', 'Finish'], u.res.slice().reverse().map((r) => ({ cells: [r[0], `${r[1]} ${r[2]}`, r[3] === 'Nationals' ? 'Nationals ' + r[4] : 'Regionals' + (r[5] ? ' (' + r[5] + ')' : ''), r[8], `${ord(r[6])}${r[7] ? ' of ' + r[7] : ''}`] })), { num: [], max: '32rem' })));
-  out.push(h('p', { class: 'note' }, 'Players are not linked: university rosters are held by UKU in JustGo, not published. ', h('a', { href: '#/uni' }, 'All universities →')));
+  const UJ = await getJSON('uni_journeys.json').catch(() => null);
+  if (UJ && UJ.unis[id]) out.push(...await uniPeople(id, u.n, UJ));
+  else out.push(h('p', { class: 'note' }, 'Players are not linked for this university yet: we hold its team results only. Named squads come from the university’s own posts (Loughborough, Bath, KCL, Leeds and Exeter so far) or would come from UKU’s JustGo exports. ', h('a', { href: '#/uni' }, 'All universities →')));
   return out;
 };
+// a university's named squads: squad flow, before / during / after, clubs either side, GB by season, every player (site/data/uni_journeys.json)
+const UPH = [['pre', 'Before university'], ['mid', 'While at university'], ['post', 'After university']];
+async function uniPeople(id, name, UJ) {
+  const S = UJ.unis[id], P = UJ.people[id], I = await index(), onSite = new Set(I.players.map((p) => p.k)), C = COL(), out = [];
+  const pc = (a, b) => b ? d3.format('.0%')(a / b) : '—';
+  const [ca, cb] = S.club_seen.split('/').map(Number), [ua, ub] = S.uni_only_seen.split('/').map(Number);
+  out.push(h('h2', { class: 'sect' }, `${name}’s players`));
+  out.push(h('p', { class: 'note' }, `From ${name}’s own squad posts (Instagram, supplied by Max): ${P.length} players across ${S.seasons.length} seasons (${S.seasons[0]} to ${S.seasons[S.seasons.length - 1]}), on championship, BUCS and club-event squads. Beginners-event teams are not counted as squads.`));
+  out.push(tiles([['Players on squads', P.length, `${S.seasons.length} seasons`], ['GB at any point', S.gb, `${S.gb_youth_before} youth GB before university · ${S.gb_during} GB while at university`],
+    ['Played club while at university', S.club_during, `${pc(S.club_during, P.length)} of the squad players`], ['Seen in the sport after', `${ca + ua} of ${cb + ub}`, `leavers we can judge: ${ca}/${cb} who played club, ${ua}/${ub} university only`]]));
+  // squad flow
+  const seasons = [...new Set(P.flatMap((p) => p.ys))].sort();
+  if (seasons.length >= 2) out.push(card('Squad flow', 'Everyone on any of the university’s squads each season, split by the season they first appear. Bands carry each intake into the next season; grey-to-black blocks are players not on a squad the next season (graduated, stopped, or just not on a posted squad). Click any part for the players.',
+    squadFlow(P.map((p) => ({ k: p.k, n: p.n, ys: p.ys.slice().sort() })), seasons, { index: I })));
+  // before / during / after
+  const R = S.rungs.filter((r) => UPH.some(([ph]) => (S.grid[ph] || {})[r]));
+  out.push(card('Before, during and after university', 'Each player placed on the highest level we see them reach in each period: before their first university season, while at university (outside the university squads), and after their last. "Not seen" means nothing outside the university squads in that period — for after, partly because many have only just left.',
+    h('div', { class: 'chartwide' }, heatGrid(R.map((r) => ({ label: r, k: r })), UPH.map(([, l]) => l), (row, col) => { const ph = UPH.find(([, l]) => l === col)[0]; const n = (S.grid[ph] || {})[row.k] || 0;
+      return { v: n, share: row.k === 'Not seen' ? 0 : n / (d3.max(UPH, ([q]) => d3.max(R.filter((x) => x !== 'Not seen'), (x) => (S.grid[q] || {})[x] || 0)) || 1), tip: [`${row.label} · ${col}`, `${n} players (${pc(n, P.length)})`] }; }, { labW: 240, cw: 150 }))));
+  // clubs either side
+  const ctab = (ph) => S.clubs[ph].length ? table(['Club', 'Players'], S.clubs[ph].map(([c, n]) => ({ cells: [c, n] })), { num: [1] }) : h('p', { class: 'note' }, 'None seen.');
+  out.push(card('Clubs connected', 'Club teams the university’s players were on before, alongside, and after their university years (each player counted once per club per period).',
+    h('div', { class: 'grid3' }, ...UPH.map(([ph, l]) => h('div', null, h('h3', null, l), ctab(ph))))));
+  // by season
+  const ss = Object.keys(S.by_season).sort();
+  out.push(card('Season by season', 'Players on any squad that season. GB counts are people with a GB squad (youth or senior) at any point; youth-before means a GB U17, U20 or U24 squad before their first university season.',
+    table(['Season', 'Players', 'First season', 'GB at any point', 'Youth GB before university', 'GB while at university', 'Club before university', 'Club while at university', 'By team'],
+      ss.map((s) => { const b = S.by_season[s]; return { cells: [s, b.n, b.first, b.gb, b.gb_youth_before, b.gb_during, b.club_before, b.club_during, Object.entries(b.teams).sort().map(([t, n]) => `${t}s ${n}`).join(' · ')] }; }), { num: [1, 2, 3, 4, 5, 6, 7] })));
+  // every player
+  const st = { f: 'all', q: '' }, box = h('div');
+  const ph = (x) => x ? `${x.top}${x.clubs.length ? ' · ' + x.clubs.join(', ') : ''}` : '—';
+  const draw = () => { const L = P.filter((p) => (!st.q || p.n.toLowerCase().includes(st.q)) && (st.f === 'all' || (st.f === 'gb' ? p.gb : st.f === 'pre' ? p.pre : st.f === 'club' ? (p.during || p.uni_club) : st.f === 'after' ? p.after : !(p.during || p.uni_club))));
+    box.replaceChildren(h('p', { class: 'note' }, `${L.length} players`), h('div', { class: 'tscroll' }, table(['Player', 'Seasons', 'Teams', 'Before', 'While at university', 'After', 'GB'],
+      L.sort((a, b) => a.s0.localeCompare(b.s0) || a.n.localeCompare(b.n)).map((p) => ({ go: onSite.has(p.k) ? '#/p/' + enc(p.k) : null,
+        cells: [p.n, p.ys.join(', '), Object.values(p.team).map((t) => t + 's').filter((v, i, a) => a.indexOf(v) === i).join(', '), ph(p.pre), p.uni_club && !p.mid ? 'With the university team at a club event' : ph(p.mid), p.judged ? ph(p.post) : (p.post ? ph(p.post) : 'Too soon'), p.gb ? 'GB' : ''] })), { num: [], max: '40rem' }))); };
+  const seg = h('div', { class: 'seg' }, ...[['all', 'Everyone'], ['pre', 'Played before university'], ['club', 'Club while at university'], ['uni', 'University only'], ['after', 'Seen after'], ['gb', 'GB']].map(([k, l]) => h('button', { class: k === st.f ? 'on' : null, onclick: (e) => { st.f = k; seg.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === e.target)); draw(); } }, l)));
+  draw();
+  out.push(card('Every player', 'Click a player who is also in the club data for their page. Names printed as initials were expanded only where exactly one full name in the university’s own posts fits.',
+    h('div', { class: 'controls' }, h('input', { type: 'search', placeholder: 'Find a player', oninput: (e) => { st.q = e.target.value.trim().toLowerCase(); draw(); } }), seg), box));
+  out.push(h('p', { class: 'note' }, h('a', { href: '#/engage' }, 'University → club across all universities (Engagement) →'), ' · ', h('a', { href: '#/uni' }, 'All universities →')));
+  return out;
+}
 // ---------- beach & indoor (club game): UKU indoor qualifiers + nationals, UKU beach nationals, UK clubs abroad ----------
 ROUTES.ib = async (arg) => {
   const D = await getJSON('ib.json'); const C = COL(); const I = await index();

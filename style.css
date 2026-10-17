@@ -206,3 +206,5 @@ body.gated > header, body.gated > main, body.gated > footer, body.gated > .back 
 .qitem summary { cursor: pointer; line-height: 1.45; } .qitem ul { margin: 6px 0 4px 1.2em; } .qitem p { margin: 4px 0; }
 .qstat { display: inline-block; padding: 0 8px; border-radius: 999px; font-size: 12px; font-weight: 600; margin-right: 4px; }
 .qs-ans { background: var(--c2); color: #fff; } .qs-part { background: var(--c1); color: #fff; } .qs-need { background: var(--axis); color: var(--fg); }
+
+h2.sect { margin: 30px 0 4px; font-family: "Barlow Condensed", sans-serif; font-size: 1.6rem; }
