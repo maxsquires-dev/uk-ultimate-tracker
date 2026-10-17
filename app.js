@@ -95,7 +95,7 @@ const infoTip = (label, extra) => { const e = explainFor(label); return e ? { 'd
 const onTip = (sel, fn) => sel.on('mousemove', (ev, d) => tip(ev, fn(d))).on('mouseleave', untip);
 
 // ---------- chart helpers ----------
-function svgBox(W, H) { const box = h('div', { class: 'chart' }); const svg = d3.select(box).append('svg').attr('viewBox', `0 0 ${W} ${H}`); return { box, svg }; }
+function svgBox(W, H) { const box = h('div', { class: 'chart' }); const svg = d3.select(box).append('svg').attr('viewBox', `0 0 ${W} ${H}`).attr('class', W >= 600 ? 'wide' : null); return { box, svg }; }
 function axes(svg, x, y, W, H, m, o = {}) {
   svg.append('g').attr('transform', `translate(0,${H - m.b})`).call((o.xAxis || d3.axisBottom(x)).tickSize(0).tickPadding(8)).call((g) => { g.select('.domain').attr('stroke', css('--axis')); });
   svg.append('g').attr('transform', `translate(${m.l},0)`).call((o.yAxis || d3.axisLeft(y).ticks(o.yTicks || 5)).tickSize(-(W - m.l - m.r)).tickPadding(6))
@@ -1443,15 +1443,32 @@ ROUTES.events = async () => {
     card(null, null, table(['Competition', 'Results', 'Years'], I.comps.map((c) => ({ go: '#/e/' + enc(c.id), cells: [c.n, c.c, `${c.y0}–${c.y1}`] })), { num: [1] }))];
 };
 ROUTES.e = async (arg) => {
-  const [id, yr] = arg.split('/'); const E = await getJSON('e/' + enc(id) + '.json'); const C = COL(); const I = await index();
+  const [id, yr] = arg.split('/'); const E = await getJSON('e/' + enc(id) + '.json'); const C = COL(); const I = await index(); await games();
   const tid = new Map(I.teams.map((t) => [t.n + '|' + t.d, t.id]));
-  const divs = [...new Set(E.results.map((r) => String(r.division)))].sort();
-  const st = { d: divs.includes('Open') ? 'Open' : divs[0], y: yr || '', sub: '' }; const box = h('div'), medBox = h('div');
+  const DORD = ['Open', 'Women', 'Mixed']; const divs = [...new Set(E.results.map((r) => String(r.division)))].sort((a, b) => ((DORD.indexOf(a) + 1) || 9) - ((DORD.indexOf(b) + 1) || 9) || a.localeCompare(b));
+  const st = { d: yr ? (divs.includes('Open') ? 'Open' : divs[0]) : 'overview', y: yr || '', sub: '' }; const box = h('div'), medBox = h('div');
   // competitions with several separate events in one season (North / South regionals...): each is its own event, shown side by side
   const subOf = (r) => String(r.event).replace(/\b20\d\d\b/g, '').replace(/^\s*(UKU|UK)\s+/, '').replace(/^(Regionals|Qualifier|Regionals \/ Qualifier)\s*/i, '').trim() || 'Main';
   const subs = (() => { const per = d3.rollups(E.results, (v) => new Set(v.map(subOf)).size, (r) => r.year, (r) => r.division); const multi = per.some(([, ds]) => ds.some(([, n]) => n > 1)); const all = [...new Set(E.results.map(subOf))]; return multi && all.length <= 8 ? all.sort() : []; })();
   const sbox = h('select', { onchange: (e) => { st.sub = e.target.value; draw(); } });
+  const overview = () => {   // all divisions together: entries, people, spirit, winners
+    const G = _games || {}, yrs = [...new Set(E.results.map((r) => r.year))].sort((a, b) => a - b);
+    const per = yrs.map((y) => { const o = { x: String(y) }; divs.forEach((d) => { o[d] = E.results.filter((r) => r.year === y && String(r.division) === d).length; }); return o; });
+    const evs = [...new Set(E.results.map((r) => r.event))], sp = evs.map((e) => G[e] && G[e].sp).filter((v) => v != null);
+    const spY = yrs.map((y) => { const v = evs.filter((e) => E.results.find((r) => r.event === e).year === y).map((e) => G[e] && G[e].sp).filter((v) => v != null); return { x: y, y: v.length ? d3.mean(v) : null }; }).filter((p) => p.y != null);
+    const players = d3.sum(E.results, (r) => +r.players || 0), teams = new Set(E.results.map((r) => r.team + '|' + r.division)).size;
+    const wins = divs.map((d) => [d, E.results.filter((r) => String(r.division) === d && r.place === 1).sort((a, b) => b.year - a.year).slice(0, 5)]);
+    box.replaceChildren(tiles([['Editions', yrs.length, `${yrs[0]}–${yrs[yrs.length - 1]}`], ['Team entries, all time', E.results.length, 'each team counted once per event'], ['Different teams', teams, 'across all divisions'],
+      ['Player places, all time', players ? d3.format(',')(players) : '—', 'roster sizes added up, once per team per event (where we have rosters)'], ['Average spirit', sp.length ? f1(d3.mean(sp)) : '—', sp.length ? `out of 20, from ${sp.length} event${sp.length > 1 ? 's' : ''} with spirit sheets` : 'no spirit sheets for this competition']]),
+      h('div', { class: 'grid2' }, card('Teams entered each year', 'UK team entries we hold, by division. Click a division above for its chart and standings.', barChart(per, divs.map((d, i) => ({ key: d, name: d, color: C[i % 8] })), { W: 520, H: 220 })),
+        spY.length > 1 ? card('Spirit each year', 'Average spirit score teams received (out of 20).', lineChart([{ name: 'Spirit', color: C[2], pts: spY.map((p) => ({ x: p.x, y: p.y, tip: [String(p.x), f1(p.y)] })) }], { W: 520, H: 220, xs: spY.map((p) => p.x), labels: true, yDomain: [8, 12] })) :
+        card('Recent winners', null, h('div', null, ...wins.map(([d, L]) => h('p', null, h('b', null, d + ': '), L.map((r) => `${r.year} ${r.team}`).join(' · ') || '—'))))));
+    const bt = d3.rollups(E.results.filter((r) => r.place && r.place <= 3), (v) => ({ g: v.filter((r) => r.place === 1).length, pod: v.length, yrs: v.filter((r) => r.place === 1).map((r) => r.year).sort().join(', ') }), (r) => r.team + '|' + r.division).sort((a, b) => b[1].g - a[1].g || b[1].pod - a[1].pod);
+    medBox.replaceChildren(table(['Team', 'Division', 'Titles', 'Podiums', 'Title years'], bt.slice(0, 40).map(([k, d]) => { const [t, dv2] = k.split('|'); return { go: tid.get(k) ? '#/t/' + enc(tid.get(k)) : null, cells: [t, dv2, d.g, d.pod, d.yrs] }; }), { num: [2, 3], max: '26rem' }));
+    ys.hidden = true; sbox.hidden = true; };
   const draw = () => {
+    if (st.d === 'overview') return overview();
+    ys.hidden = false;
     const RA0 = E.results.filter((r) => String(r.division) === st.d), RA = st.sub && st.sub !== '*' ? RA0.filter((r) => subOf(r) === st.sub) : RA0, R = RA.filter((r) => !r.ov);
     sbox.hidden = !subs.length; if (subs.length) sbox.replaceChildren(h('option', { value: '', selected: !st.sub || null }, 'Each event side by side'), h('option', { value: '*', selected: st.sub === '*' || null }, 'All events combined'), ...subs.filter((x) => RA0.some((r) => subOf(r) === x)).map((x) => h('option', { value: x, selected: st.sub === x || null }, x)));
     const best = d3.rollups(R, (v) => v.slice().sort((a, b) => (a.place || 999) - (b.place || 999))[0], (r) => r.team, (r) => r.year);
@@ -1473,13 +1490,13 @@ ROUTES.e = async (arg) => {
       const rows = RA.filter((r) => String(r.year) === st.y).sort((a, b) => String(a.event).localeCompare(String(b.event)) || (a.place || 999) - (b.place || 999));
       const multi = new Set(rows.map((r) => r.event)).size > 1;
       box.replaceChildren(table([...(multi ? ['Event'] : []), 'Place', 'Team', 'Players', 'Roster quality', 'GB players', 'Back from last year', 'Top players'],
-        rows.map((r) => ({ go: tid.get(r.team + '|' + r.division) ? '#/t/' + enc(tid.get(r.team + '|' + r.division)) : null, cls: r.ov ? 'muted' : null, cells: [...(multi ? [r.event] : []), ord(r.place) + (r.field ? ' / ' + r.field : ''), r.ov ? h('span', { class: 'muted' }, r.team) : h('b', null, r.team), r.players ?? '—', f0(r.quality), r.gb_players ?? '—', pct(r.returning), r.top || ''] })), { max: '40rem' }));
+        rows.map((r) => ({ go: (_games && _games[r.event] && _games[r.event].teams[r.division + '|' + r.team]) ? teLink(r.event, r.division, r.team) : tid.get(r.team + '|' + r.division) ? '#/t/' + enc(tid.get(r.team + '|' + r.division)) : null, cls: r.ov ? 'muted' : null, cells: [...(multi ? [r.event] : []), ord(r.place) + (r.field ? ' / ' + r.field : ''), r.ov ? h('span', { class: 'muted' }, r.team) : h('b', null, r.team), r.players ?? '—', f0(r.quality), r.gb_players ?? '—', pct(r.returning), r.top || ''] })), { max: '40rem' }));
     }
     const bt = best.map(([t, v]) => { const ps = v.map(([, r]) => r.place).filter(Boolean); return { t, g: ps.filter((p) => p === 1).length, pod: ps.filter((p) => p <= 3).length, n: v.length, yrs: R.filter((r) => r.team === t && r.place === 1).map((r) => r.year + (subs.length && st.sub !== '' && st.sub !== '*' ? '' : subs.length ? ' (' + subOf(r) + ')' : '')).sort().join(', '), g2: R.filter((r) => r.team === t && r.place === 1).length }; }).filter((d) => d.pod).sort((a, b) => b.g - a.g || b.pod - a.pod);
     medBox.replaceChildren(bt.length ? table(['Team', 'Titles', 'Podiums', 'Seasons with a result', 'Title years'], bt.map((d) => ({ go: tid.get(d.t + '|' + st.d) ? '#/t/' + enc(tid.get(d.t + '|' + st.d)) : null, cells: [d.t, d.g, d.pod, d.n, d.yrs] })), { num: [1, 2, 3] }) : h('p', { class: 'note' }, 'No UK podiums recorded.'));
   };
   const ys = h('select', { onchange: (e) => { st.y = e.target.value; draw(); } });
-  const dv = h('select', { onchange: (e) => { st.d = e.target.value; draw(); } }, divs.map((d) => h('option', { value: d, selected: d === st.d || null }, d)));
+  const dv = h('div', { class: 'seg' }, ...[['overview', 'Overview'], ...divs.map((d) => [d, d === 'Women' ? 'Women’s' : d])].map(([k, l]) => h('button', { class: k === st.d ? 'on' : null, onclick: (e) => { st.d = k; e.target.parentNode.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === e.target)); draw(); } }, l)));
   draw();
   return [h('h1', null, E.kind), h('p', { class: 'sub' }, 'Charts show UK teams. A single year shows the full standings where we have them (EUCS schedule site for 2023+ EUCS events; UK teams in bold). Years before 2022 come from ultimate-reference.com and UKU results.'), card(null, null, h('div', { class: 'controls' }, dv, sbox, ys), box), card('Titles and podiums', 'UK teams with a top-three finish here.', medBox)];
 };
@@ -1577,6 +1594,10 @@ function findingChart(ch, C) {
     return h('div', null, h('p', { class: 'note' }, `Each row is a university. Green dot: share of leavers who ${ch.keys[0].name.toLowerCase()} and are seen playing after university; grey dot: the same for ${ch.keys[1].name.toLowerCase()}. The gap between them is the difference. n = leavers we can judge.`),
       dotRange(ch.rows.map((r) => ({ label: `${r.x} (n ${r.n.club} / ${r.n.uni})`, v: r.club, lo: Math.min(r.club, r.uni), hi: Math.max(r.club, r.uni), color: C[2], v2: r.uni,
         tip: [r.x, `${ch.keys[0].name}: ${pf2(r.club)} of ${r.n.club} seen after`, `${ch.keys[1].name}: ${pf2(r.uni)} of ${r.n.uni} seen after`] })), { W: 1000, labW: 240, xDomain: [0, 1], fmt: pf2, second: '#9aa39a' })); }
+  if (ch.type === 'grouped' && ch.rows.length > 7 && ch.keys.length > 2) {   // many groups x 3+ series: one small chart per series, short labels, so nothing collides on a phone
+    const box = h('div', { class: 'grid3' }); const short = (x) => String(x).replace(/[\u2013-].*$/, '');
+    ch.keys.forEach((k, i) => box.append(h('div', null, h('h3', null, k.name), barChart(ch.rows.map((r) => ({ x: short(r.x), v: r[k.key] || 0 })), [{ key: 'v', name: k.name, color: C[i % 8] }], { W: 360, H: 220, yFmt: ch.yfmt === 'pct' ? d3.format('.0%') : null }))));
+    return h('div', null, box, h('p', { class: 'note' }, (ch.xlabel ? ch.xlabel[0].toUpperCase() + ch.xlabel.slice(1) : 'Groups') + ' along the bottom; each label is the start of a two-year band (22 = 22 to 23). Hover a bar for the count.')); }
   if (ch.type === 'grouped') { return h('div', null, barChart(ch.rows, ch.keys.map((k, i) => ({ key: k.key, name: k.name, color: C[i % 8] })), { W: 1000, H: 260, grouped: true, yFmt: ch.yfmt === 'pct' ? d3.format('.0%') : null, xLab: ch.xlabel })); }
   if (false) { const box = h('div', { class: ch.keys.length > 2 ? 'grid3' : 'grid2' }); ch.keys.forEach((k, i) => box.append(h('div', null, h('h3', null, k.name), barChart(ch.rows.map((r) => ({ x: r.x, v: r[k.key], tip: r.n ? `n=${(r.n || {})[k.key] ?? '—'}` : null })), [{ key: 'v', name: k.name, color: C[i % 8] }], { W: ch.keys.length > 2 ? 330 : 480, H: 220, yFmt: ch.yfmt === 'pct' ? d3.format('.0%') : null, vFmt: ch.yfmt === 'pct' ? pf : null })))); return box; }
   if (ch.type === 'hbars') return hbars(ch.rows.filter((r) => r.v != null).map((r, i) => ({ label: r.label, v: r.v, color: C[0], tip: [r.label, (ch.yfmt === 'pct' ? pf(r.v) : d3.format('.1f')(r.v)) + (r.n ? ` · n=${r.n}` : '') + (r.sub ? ' · ' + r.sub : '')] })), { W: 1000, labW: 400, maxLab: 62, fmt: ch.yfmt === 'pct' ? pf : d3.format('.1f') });
@@ -2516,4 +2537,119 @@ const JCOL = { Youth: '#e08a2c', University: '#8e5bb5', Club: '#2b55a8', 'GB U24
     const sel = h('div'); draw();
     out.push(card('Journeys: the order people reach each stage', `Every person with two or more stages, grouped by the order they first reached them (${J.order.join(', ')}). The data starts at different years for different sources (masters squads and GB history go back further than club rosters), so some orders, like Masters → Club, are an artefact of coverage rather than real careers. Click a bar for the people; filter to journeys that include a stage.`,
       h('div', { class: 'controls' }, h('div', { class: 'seg' }, ...[['all', 'All'], ...J.order.map((o) => [o, o])].map(([k, l]) => h('button', { class: k === st.f ? 'on' : null, onclick: (e) => { st.f = k; e.target.parentNode.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === e.target)); sel.replaceChildren(); draw(); } }, l)))), box, sel));
+    return out; }; }
+
+// ---------- People explorer (Max, 17 Oct): who played what, at what level, in which format, how often; filter on any mix ----------
+async function peopleExplorer() {
+  const D = await getJSON('people.json').catch(() => null); if (!D) return null;
+  const C = COL(), TI = D.tiers, LB = D.labels, FM = ['grass', 'beach', 'indoor'], YS = [...new Set(D.people.flatMap((p) => p[2].map((r) => r[2])))].sort();
+  const TC = { recreational: '#9aa39a', tour: '#5b9bd5', nationals: C[0], international: '#c0504d', gb: C[1], university: '#8e5bb5', youth: C[2], masters: '#8a6d3b' };
+  const blank = () => ({ neg: false, tier: '', fmt: '', min: 1, max: '' });
+  const st = { conds: [blank()], y0: YS[0], y1: YS[YS.length - 1], q: '' };
+  const PRE = [
+    ['Lots of beach, one grass event', [{ neg: false, tier: '', fmt: 'beach', min: 3, max: '' }, { neg: false, tier: '', fmt: 'grass', min: 1, max: 1 }]],
+    ['GB, and only one club event', [{ neg: false, tier: 'gb', fmt: '', min: 1, max: '' }, { neg: false, tier: 'tour', fmt: '', min: 0, max: 0 }, { neg: false, tier: 'nationals', fmt: '', min: 0, max: 1 }, { neg: false, tier: 'international', fmt: '', min: 0, max: 1 }]],
+    ['Recreational, then one Nationals', [{ neg: false, tier: 'recreational', fmt: '', min: 1, max: '' }, { neg: false, tier: 'nationals', fmt: '', min: 1, max: 1 }]],
+    ['University, never club', [{ neg: false, tier: 'university', fmt: '', min: 1, max: '' }, { neg: true, tier: 'tour', fmt: '', min: 1, max: '' }, { neg: true, tier: 'nationals', fmt: '', min: 1, max: '' }, { neg: true, tier: 'international', fmt: '', min: 1, max: '' }]],
+    ['Youth, then nothing else', [{ neg: false, tier: 'youth', fmt: '', min: 1, max: '' }, { neg: true, tier: 'tour', fmt: '', min: 1, max: '' }, { neg: true, tier: 'nationals', fmt: '', min: 1, max: '' }, { neg: true, tier: 'university', fmt: '', min: 1, max: '' }]],
+    ['Masters, never GB', [{ neg: false, tier: 'masters', fmt: '', min: 1, max: '' }, { neg: true, tier: 'gb', fmt: '', min: 1, max: '' }]]];
+  const cnt = (p, c) => p[2].reduce((a, r) => a + ((!c.tier || r[0] === c.tier) && (!c.fmt || r[1] === c.fmt) && r[2] >= st.y0 && r[2] <= st.y1 && (c.tier || r[0] !== 'masters') ? r[3] : 0), 0);   // masters is a tag on top of a tier: count it only when asked for
+  const ok = (p, c) => { const n = cnt(p, c); const hit = n >= (+c.min || 0) && (c.max === '' || n <= +c.max); return c.neg ? !(n >= Math.max(1, +c.min || 1)) : hit; };
+  const condsBox = h('div'), res = h('div'), mix = h('div');
+  const opt = (v, l, cur) => h('option', { value: v, selected: v === cur ? true : null }, l);
+  const drawConds = () => condsBox.replaceChildren(...st.conds.map((c, i) => h('div', { class: 'controls', style: 'margin:4px 0' },
+    h('select', { onchange: (e) => { c.neg = e.target.value === '1'; run(); } }, opt('0', 'Played', c.neg ? '1' : '0'), opt('1', 'Never played', c.neg ? '1' : '0')),
+    h('select', { onchange: (e) => { c.tier = e.target.value; run(); } }, opt('', 'any level', c.tier), ...TI.map((t) => opt(t, LB[t] || t, c.tier))),
+    h('select', { onchange: (e) => { c.fmt = e.target.value; run(); } }, opt('', 'any format', c.fmt), ...FM.map((f) => opt(f, f, c.fmt))),
+    c.neg ? null : h('span', null, ' events: at least ', h('input', { type: 'number', min: 0, value: c.min, style: 'width:4em', oninput: (e) => { c.min = e.target.value; run(); } }),
+      ' at most ', h('input', { type: 'number', min: 0, value: c.max, placeholder: 'any', style: 'width:4em', oninput: (e) => { c.max = e.target.value; run(); } })),
+    st.conds.length > 1 ? h('button', { class: 'btn', onclick: () => { st.conds.splice(i, 1); drawConds(); run(); } }, 'Remove') : null)));
+  const summary = (p) => { const by = {}; p[2].forEach((r) => { if (r[2] < st.y0 || r[2] > st.y1) return; by[r[0]] = (by[r[0]] || 0) + r[3]; });
+    return h('span', null, ...TI.filter((t) => by[t]).map((t) => h('span', { style: `display:inline-block;margin:0 4px 2px 0;padding:1px 6px;border-radius:9px;font-size:11px;color:#fff;background:${TC[t]}` }, `${LB[t] || t} ${by[t]}`))); };
+  const fmts = (p) => FM.map((f) => [f, p[2].reduce((a, r) => a + (r[1] === f && r[0] !== 'masters' && r[2] >= st.y0 && r[2] <= st.y1 ? r[3] : 0), 0)]).filter((x) => x[1]).map((x) => x.join(' ')).join(' · ');
+  const run = () => { const L = D.people.filter((p) => (!st.q || p[1].toLowerCase().includes(st.q)) && st.conds.every((c) => ok(p, c)) && p[2].some((r) => r[2] >= st.y0 && r[2] <= st.y1));
+    const tot = {}; L.forEach((p) => p[2].forEach((r) => { if (r[2] >= st.y0 && r[2] <= st.y1 && r[0] !== 'masters') tot[r[0]] = (tot[r[0]] || 0) + r[3]; })); const T = d3.sum(Object.values(tot)) || 1;
+    mix.replaceChildren(h('p', null, h('b', null, `${L.length} people`), ` match, out of ${D.people.length}. Their events by level:`),
+      hbarsStack([{ label: 'All their events', parts: TI.filter((t) => tot[t]).map((t) => ({ v: tot[t] / T, color: TC[t], label: LB[t].split(' ')[0], tip: [LB[t], `${tot[t]} events (${d3.format('.0%')(tot[t] / T)})`] })) }], { W: 1000, labW: 130 }));
+    res.replaceChildren(table(['Player', 'Events by level', 'Formats', 'Years', 'Clubs', 'University', 'GB'], L.slice(0, 400).map((p) => { const ys = p[2].map((r) => r[2]);
+      return { go: '#/p/' + enc(p[0]), cells: [h('b', null, p[1]), summary(p), fmts(p), `${d3.min(ys)}–${d3.max(ys)}`, p[4].map((c) => D.clubs[c] || c).join(', '), p[3].map((u) => u === 'kcl' ? 'KCL' : u[0].toUpperCase() + u.slice(1)).join(', '), p[5].length ? p[5].join(', ') : ''] }; }), { max: '34rem' }),
+      ...(L.length > 400 ? [h('p', { class: 'note' }, `Showing the first 400; add a condition or a name to narrow it.`)] : [])); };
+  const yrSel = (k) => h('select', { onchange: (e) => { st[k] = +e.target.value; run(); } }, ...YS.map((y) => opt(String(y), String(y), String(st[k]))));
+  drawConds(); run();
+  return card('People explorer', `Every person in the data with what they played: level (Recreational = club sessions, hats, leagues, beginners and community events, and all indoor except indoor nationals and European indoor; Tour & regionals = entry-level club; Nationals = mid to upper club; International club = EUCF, WUCC, Windmill, Tom’s, Elite Invite; GB above that; University and Youth are their own groups; Masters is a tag on top). Combine conditions, e.g. lots of beach and exactly one grass event. Counts are events (a team at an event once). Click a person.`,
+    h('div', { class: 'controls' }, h('span', { class: 'note' }, 'Try: '), ...PRE.map(([l, cs]) => h('button', { class: 'btn', onclick: () => { st.conds = cs.map((c) => ({ ...c })); drawConds(); run(); } }, l))),
+    condsBox,
+    h('div', { class: 'controls' }, h('button', { class: 'btn', onclick: () => { st.conds.push(blank()); drawConds(); } }, '+ Add a condition'), h('span', null, ' Years ', yrSel('y0'), ' to ', yrSel('y1')),
+      h('input', { type: 'search', placeholder: 'Name', oninput: (e) => { st.q = e.target.value.trim().toLowerCase(); run(); } }),
+      h('button', { class: 'btn', onclick: () => { st.conds = [blank()]; st.y0 = YS[0]; st.y1 = YS[YS.length - 1]; drawConds(); run(); } }, 'Reset')),
+    mix, res);
+}
+{ const base = ROUTES.engage; ROUTES.engage = async () => { const out = await base(); const pe = await peopleExplorer(); if (pe) out.splice(Math.min(3, out.length), 0, pe); return out; }; }
+
+// ---------- Tournament journeys (Max, 17 Oct): a team's game-by-game path through one event, then on to the whole event ----------
+let _games; async function games() { if (_games === undefined) _games = await getJSON('games.json').catch(() => null); return _games; }
+const teLink = (ev, div, team) => '#/te/' + enc(ev + '|' + div + '|' + team);
+ROUTES.te = async (arg) => {
+  const [ev, div, team] = decodeURIComponent(arg).split('|'); const G = await games(); const E = G && G[ev]; const C = COL(), I = await index();
+  const L = (E && E.teams[div + '|' + team]) || [];
+  const R = (await getJSON('e/' + enc(E ? E.k : '') + '.json').catch(() => ({ results: [] }))).results.filter((r) => r.event === ev && String(r.division) === div);
+  const me = R.find((r) => r.team === team) || {}; const tid = new Map(I.teams.map((t) => [t.n + '|' + t.d, t.id]));
+  const sc = L.filter((g) => g[2] != null), w = sc.filter((g) => g[2] > g[3]).length, l = sc.filter((g) => g[2] < g[3]).length;
+  const out = [h('h1', null, `${team} at ${ev}`), h('p', { class: 'sub' }, `${div} division${me.place ? ' · finished ' + ord(me.place) + (me.field ? ' of ' + me.field : '') : ''}. `,
+    h('a', { href: '#/e/' + enc(E ? E.k : '') + '/' + (E ? E.year : '') }, 'Whole event →'), '  ', tid.get(team + '|' + div) ? h('a', { href: '#/t/' + enc(tid.get(team + '|' + div)) }, team + ' team page →') : '')];
+  out.push(tiles([['Finish', me.place ? ord(me.place) : '—', me.field ? 'of ' + me.field + ' teams' : ''], ['Games with a score', sc.length, sc.length ? `${w} won · ${l} lost` : 'scores not published for this event'],
+    ['Points', sc.length ? `${d3.sum(sc, (g) => g[2])}–${d3.sum(sc, (g) => g[3])}` : '—', sc.length ? 'for–against' : ''], ['Spirit received', L.some((g) => g[5] != null) ? f1(d3.mean(L.filter((g) => g[5] != null), (g) => g[5])) : '—', 'average out of 20, from opponents']]));
+  if (!L.length) { out.push(card('No game list', 'We have the finish for this team here but not its games. Game lists come from the EUCS ranking (2024+ tours, Elite Invite, Tom’s, Windmill, Nationals 2024), WUCC 2014 / 2022, the EUF schedule site for EUCF, and UKU spirit sheets (opponents only).', null)); return out; }
+  if (sc.length) out.push(card('Game by game', 'Each bar is one game in order: above the line a win, below a loss, by the margin. Hover for the score.',
+    barChart(sc.map((g, i) => ({ x: `${i + 1}. ${g[1]}`.slice(0, 22), win: g[2] > g[3] ? g[2] - g[3] : 0, loss: g[2] < g[3] ? g[3] - g[2] : 0 })), [{ key: 'win', name: 'Won by', color: C[2] }, { key: 'loss', name: 'Lost by', color: '#c0504d', neg: true }], { W: 1000, H: 240, diverge: true })));
+  const hasSp = L.some((g) => g[4] != null || g[5] != null), hasSc = sc.length > 0;
+  out.push(card('Results', 'Source: ' + [...new Set(L.map((g) => g[6]))].join(', ') + '. Click an opponent for their journey here.', table(['#', 'Round / date', 'Opponent', ...(hasSc ? ['Score', 'Result'] : []), ...(hasSp ? ['Spirit given', 'Spirit received'] : [])], L.map((g, i) => { const rs = g[2] == null ? '' : g[2] > g[3] ? 'W' : g[2] < g[3] ? 'L' : 'D';
+    return { go: G[ev].teams[div + '|' + g[1]] ? teLink(ev, div, g[1]) : null, cells: [i + 1, g[0] || '—', h('b', null, g[1]), ...(hasSc ? [g[2] == null ? '—' : `${g[2]}–${g[3]}`, rs ? h('span', { style: `font-weight:700;color:${rs === 'W' ? C[2] : rs === 'L' ? '#c0504d' : 'inherit'}` }, rs) : '—'] : []), ...(hasSp ? [g[4] == null ? '—' : f1(g[4]), g[5] == null ? '—' : f1(g[5])] : [])] }; }), { num: [0] })));
+  if (R.length) out.push(card('Final standings', 'The whole division at this event. Click a team for its journey here.', table(['Place', 'Team', 'Players'], R.slice().sort((a, b) => (a.place || 999) - (b.place || 999)).map((r) => ({ go: G[ev].teams[div + '|' + r.team] ? teLink(ev, div, r.team) : null, cls: r.team === team ? 'hl' : null, cells: [ord(r.place), r.team === team ? h('b', null, r.team) : r.team, r.players || '—'] })), { num: [2] })));
+  return out;
+};
+// team pages: every event we hold games for, newest first
+{ const base = ROUTES.t; ROUTES.t = async (id) => { const out = await base(id); const ix = (await index()).teams.find((x) => x.id === id); const G = await games(); if (!ix || !G) return out;
+    const L = Object.entries(G).filter(([ev, E]) => E.teams[ix.d + '|' + ix.n]).map(([ev, E]) => { const g = E.teams[ix.d + '|' + ix.n], sc = g.filter((x) => x[2] != null); return { ev, y: E.year, n: g.length, w: sc.filter((x) => x[2] > x[3]).length, l: sc.filter((x) => x[2] < x[3]).length, sc: sc.length }; }).sort((a, b) => b.y - a.y || a.ev.localeCompare(b.ev));
+    if (L.length) out.splice(Math.min(4, out.length), 0, card('Tournament journeys', 'Every event where we hold the game list. Click one for the game-by-game path, then on to the whole event.',
+      table(['Year', 'Event', 'Games', 'Won–lost'], L.map((x) => ({ go: teLink(x.ev, ix.d, ix.n), cells: [x.y, x.ev, x.n, x.sc ? `${x.w}–${x.l}` : 'opponents only'] })), { num: [0, 2], max: '22rem' })));
+    return out; }; }
+
+// ---------- Acquisition and churn (Max, 17 Oct): under the squad flow, where joiners came from and where leavers went ----------
+const FIN = [['Returning to this team', '#5b9bd5'], ['From another club team', null], ['From university', '#8e5bb5'], ['From youth', null], ['From sessions & recreational', '#9aa39a'], ['GB squad only', '#24407a'], ['New to our data', '#d9c27a']];
+const FOUT = [['Back later (gap year)', '#9fc3e6'], ['Same club, other team', '#7fb08f'], ['To another club team', '#e08a3c'], ['Only university after', '#b99ad3'], ['Only sessions & recreational after', '#c4c9c4'], ['Only youth after', '#c4c9c4'], ['Only gb / national squad after', '#c4c9c4'], ['Not seen again', '#c0504d'], ['Not seen this season', '#e6a3a1']];
+let _flows; async function flows() { if (_flows === undefined) _flows = await getJSON('flows.json').catch(() => null); return _flows; }
+async function churnCard(tid, title) {
+  const F = (await flows() || {})[tid]; if (!F) return null; const C = COL(); const ys = Object.keys(F).sort();
+  const fin = FIN.map(([k, c]) => [k, c || (k === 'From another club team' ? C[2] : '#e0c341')]), key = (s) => 'k' + s.replace(/\W+/g, '');
+  const data = ys.map((y) => { const o = { x: y }; fin.forEach(([k]) => { o[key(k)] = (F[y].in[k] || []).length; }); FOUT.forEach(([k]) => { o[key(k)] = (F[y].out[k] || []).length; }); return o; });
+  const who = h('div', { class: 'note' }, 'Click a block to list the players and where they came from or went.');
+  const show = (y, k, side) => { const L = (F[y][side][k] || []); who.replaceChildren(h('b', null, `${title} ${y}: ${k.toLowerCase()} (${L.length})`), h('div', null, ...L.map(([pk, n, d]) => h('div', null, h('a', { href: '#/p/' + enc(pk) }, n), d ? h('span', { class: 'muted' }, ' · ' + d) : '')))); };
+  const keys = [...fin.map(([k, c]) => ({ key: key(k), name: k, color: c, lab: k, side: 'in' })), ...FOUT.map(([k, c]) => ({ key: key(k), name: k, color: c, neg: true, lab: k, side: 'out' }))].filter((k) => data.some((d) => d[k.key]));
+  const tops = (side, cat) => { const c = {}; ys.forEach((y) => (F[y][side][cat] || []).forEach((r) => { const t = r[2].replace(/\s+\d{4}$/, ''); if (t) c[t] = (c[t] || 0) + 1; })); return Object.entries(c).sort((a, b) => b[1] - a[1]).slice(0, 8); };
+  const fromC = tops('in', 'From another club team'), toC = tops('out', 'To another club team');
+  return card('Where players came from and where they went', 'Each season: above the line, players new to the squad, coloured by what we last saw them do; below, last season’s players who aren’t on it, coloured by what they did next. "New to our data" means no earlier record anywhere; "not seen again" means no later record anywhere (we hold mostly 2022+ rosters, so treat it as an upper bound). The latest season can’t show long-run leavers yet.',
+    barChart(data, keys, { W: 1000, H: 300, diverge: true, onClick: (d, k) => show(d.x, k.name, k.side) }), who,
+    (fromC.length || toC.length) ? h('div', { class: 'grid2' },
+      h('div', null, h('h3', null, 'Clubs that fed this team'), fromC.length ? hbars(fromC.map(([t, n]) => ({ label: t, v: n })), { W: 480, labW: 170, fmt: (v) => v + (v === 1 ? ' player' : ' players') }) : h('p', { class: 'note' }, 'None in the data.')),
+      h('div', null, h('h3', null, 'Clubs its leavers went to'), toC.length ? hbars(toC.map(([t, n]) => ({ label: t, v: n })), { W: 480, labW: 170, fmt: (v) => v + (v === 1 ? ' player' : ' players') }) : h('p', { class: 'note' }, 'None in the data.'))) : null);
+}
+{ const base = ROUTES.t; ROUTES.t = async (id) => { const out = await base(id); const ix = (await index()).teams.find((x) => x.id === id); const cc = await churnCard(id, ix ? ix.n : '');
+    if (cc) { const i = out.findIndex((n) => n && n.querySelector && /Squad flow/.test((n.querySelector('h2') || {}).textContent || '')); out.splice(i >= 0 ? i + 1 : out.length, 0, cc); } return out; }; }
+{ const base = ROUTES.c; ROUTES.c = async (id) => { const out = await base(id); const I = await index(), F = await flows() || {}; const ts = I.teams.filter((t) => t.c === id && F[t.id]); if (!ts.length) return out;
+    const sel = h('select', { onchange: async () => box.replaceChildren(await churnCard(sel.value, ts.find((t) => t.id === sel.value).n) || '') }, ts.map((t) => h('option', { value: t.id }, t.n + ' (' + t.d + ')'))), box = h('div');
+    box.replaceChildren(await churnCard(ts[0].id, ts[0].n)); const i = out.findIndex((n) => n && n.querySelector && /Squad flow/.test((n.querySelector('h2') || {}).textContent || ''));
+    out.splice(i >= 0 ? i + 1 : out.length, 0, h('div', null, ts.length > 1 ? h('div', { class: 'controls' }, h('span', { class: 'note' }, 'Team: '), sel) : null, box)); return out; }; }
+
+// ---------- GB origins (Max, 17 Oct): what players did before their first GB squad ----------
+{ const base = ROUTES.programme; ROUTES.programme = async () => { const out = await base(); const D = await getJSON('gb_origins.json').catch(() => null); if (!D) return out;
+    const C = COL(), R = [['GB youth squad', C[1]], ['Youth club / junior', C[2]], ['University', '#8e5bb5'], ['Club', C[0]], ['Sessions & recreational', '#9aa39a'], ['Nothing before', '#d5d8dc']];
+    const st = { w: 'senior' }, box = h('div'), who = h('div', { class: 'note' });
+    const draw = () => { const Y = D[st.w], ys = Object.keys(Y).filter((y) => +y >= 2010).sort();
+      const data = ys.map((y) => { const o = { x: y }; R.forEach(([r], i) => { o['r' + i] = (Y[y][r] || []).length; }); return o; });
+      box.replaceChildren(barChart(data, R.map(([r, c], i) => ({ key: 'r' + i, name: r, color: c })).filter((k) => data.some((d) => d[k.key])), { W: 1000, H: 280, onClick: (d, k) => { const L = Y[d.x][k.name] || [];
+        who.replaceChildren(h('b', null, `${d.x}, first ${st.w === 'senior' ? 'senior ' : ''}GB squad, route: ${k.name.toLowerCase()} (${L.length})`), h('div', null, ...L.map(([pk, n, det, sq]) => h('div', null, h('a', { href: '#/p/' + enc(pk) }, n), h('span', { class: 'muted' }, ` · ${sq}${det ? ' · before: ' + det : ''}`))))); } })); who.textContent = 'Click a block for the players.'; };
+    draw();
+    out.splice(Math.min(2, out.length), 0, card('Where GB players came from', 'Each bar is the players whose first GB squad was that year, coloured by what we last saw them do before it, in this order: an earlier GB youth squad (senior view only), youth club, university, club, sessions and recreational, or nothing. "Nothing before" is mostly a data gap: our club rosters are thin before 2022, junior club events have no names, and we hold named university squads for only five universities from 2021-22. So read the recent years, and the blue and orange blocks, as the solid part.',
+      h('div', { class: 'seg' }, ...[['senior', 'First senior squad'], ['first', 'First squad of any age']].map(([k, l]) => h('button', { class: k === st.w ? 'on' : null, onclick: (e) => { st.w = k; e.target.parentNode.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === e.target)); draw(); } }, l))), box, who));
     return out; }; }
