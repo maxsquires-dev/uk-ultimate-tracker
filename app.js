@@ -104,24 +104,27 @@ function axes(svg, x, y, W, H, m, o = {}) {
 /** series: [{name, color, pts:[{x,y,tip}] }]; x categorical (years) */
 function lineChart(series, o = {}) {
   const W = o.W || 560, H = o.H || 260, m = Object.assign({ l: 40, r: o.labels ? 130 : 14, t: 12, b: 26 }, o.m || {});
-  const { box, svg } = svgBox(W, H);
+  const { box, svg: SVG } = svgBox(W, H); const svg = SVG;
   const xs = o.xs || [...new Set(series.flatMap((s) => s.pts.map((p) => p.x)))].sort((a, b) => a - b);
   const x = d3.scalePoint(xs, [m.l, W - m.r]).padding(0.3);
   const ys = series.flatMap((s) => s.pts.map((p) => p.y)).filter((v) => v != null);
   const y = (o.yScale || d3.scaleLinear)(o.yDomain || [Math.min(0, d3.min(ys) ?? 0), (d3.max(ys) ?? 1) * 1.08], [H - m.b, m.t]);
   if (!o.yScale && !o.yDomain) y.nice(); else y.clamp(true);
   axes(svg, x, y, W, H, m, { yAxis: o.yFmt ? d3.axisLeft(y).ticks(5).tickFormat(o.yFmt) : o.yAxis, xAxis: d3.axisBottom(x).tickValues(xs.length > 12 ? xs.filter((v, i) => i % 2 === 0) : xs).tickFormat(o.xFmt || ((v) => v)) });
-  const ends = [];
-  series.forEach((s) => {
+  const ends = []; const groups = [];
+  const focus = (i) => { const on = groups.some((g, j) => g.classed('dim') === false && g.classed('focus') && j === i) ; groups.forEach((g, j) => { g.classed('focus', !on && j === i).attr('opacity', on || j === i ? 1 : 0.15); }); };
+  series.forEach((s, si) => {
     const pts = s.pts.filter((p) => p.y != null && xs.includes(p.x));
     const linePts = s.bridge ? s.pts.slice().sort((a, b) => a.x - b.x) : xs.map((v) => s.pts.find((p) => p.x === v) || { x: v, y: null });   // a missing season breaks the line instead of bridging it
+    const svg = o.focus ? (() => { const g = SVG.append('g').style('cursor', 'pointer').on('click', (ev) => { if (ev.target.tagName !== 'circle' || !(d3.select(ev.target).datum() || {}).onclick) focus(si); }); groups.push(g); return g; })() : SVG;
     if (s.line !== false) svg.append('path').datum(linePts).attr('fill', 'none').attr('stroke', s.color).attr('stroke-width', s.w || 2).attr('stroke-dasharray', s.dash || null).attr('d', d3.line((p) => x(p.x), (p) => y(p.y)).defined((p) => p.y != null));
     onTip(svg.append('g').selectAll('circle').data(pts).join('circle').attr('cx', (p) => x(p.x)).attr('cy', (p) => y(p.y)).attr('r', (p) => p.r || (s.dots === false ? 0 : 3.5)).attr('fill', (p) => p.fill || s.color).attr('stroke', s.color).attr('stroke-width', (p) => p.fill ? 1.5 : 0)
       .style('cursor', (p) => p.go || p.onclick ? 'pointer' : null).on('click', (ev, p) => { if (p.onclick) p.onclick(ev); else if (p.go) location.hash = p.go; }), (p) => [...(p.tip || [s.name, `${p.x}: ${o.yFmt ? o.yFmt(p.y) : f1(p.y)}`]), ...(p.onclick ? [CLICK] : [])]);
-    if (o.labels && pts.length) ends.push({ y: y(pts[pts.length - 1].y), t: s.name, c: s.color });
+    if (o.labels && pts.length) ends.push({ y: y(pts[pts.length - 1].y), t: s.name, c: s.color, i: si });
   });
   ends.sort((a, b) => a.y - b.y); for (let i = 1; i < ends.length; i++) if (ends[i].y - ends[i - 1].y < 13) ends[i].y = ends[i - 1].y + 13;
-  ends.forEach((e) => svg.append('text').attr('x', W - m.r + 8).attr('y', e.y + 4).style('fill', e.c).text(e.t.length > 20 ? e.t.slice(0, 19) + '…' : e.t));
+  ends.forEach((e) => SVG.append('text').attr('x', W - m.r + 8).attr('y', e.y + 4).style('fill', e.c).style('cursor', o.focus ? 'pointer' : null).on('click', () => o.focus && focus(e.i)).text(e.t.length > 20 ? e.t.slice(0, 19) + '…' : e.t));
+  if (o.focus) box.append(h('p', { class: 'note' }, 'Click a team’s line or name to see only its journey; click again to show all.'));
   if (o.legend !== false && !o.labels && series.length > 1) box.append(legend(series.map((s) => [s.name, s.color, 'line'])));
   return box;
 }
@@ -706,7 +709,7 @@ function honours(results, o = {}) {
   const kinds = [...new Set(ev.map((r) => r.kind))].sort((a, b) => (KORDER.indexOf(a) + 1 || 99) - (KORDER.indexOf(b) + 1 || 99));
   const years = [...new Set(ev.map((r) => r.year))].sort((a, b) => a - b);
   const rows = kinds.map((k) => { const es = ev.filter((r) => r.kind === k); const cells = {};
-    years.forEach((y) => { const ye = es.filter((r) => r.year === y).sort((a, b) => a.place - b.place); if (ye.length) cells[y] = { place: ye[0].place, n: ye.length, tip: [k + ' ' + y, ...ye.map((r) => `${r.event}: ${ord(r.place)}${r.field ? ' of ' + r.field : ''}`)], go: o.compGo ? '#/e/' + enc(o.compGo(k)) : null }; });
+    years.forEach((y) => { const ye = es.filter((r) => r.year === y).sort((a, b) => a.place - b.place); if (ye.length) cells[y] = { place: ye[0].place, n: ye.length, tip: [k + ' ' + y, ...ye.map((r) => `${r.event}: ${ord(r.place)}${r.field ? ' of ' + r.field : ''}`), ...(o.teamOf && _games && ye.some((r) => _games[r.event] && _games[r.event].teams[(r.division || o.div) + '|' + (r.team || o.teamOf)]) ? ['click: game by game'] : [])], go: (o.teamOf && _games && (() => { const r = ye.find((r) => _games[r.event] && _games[r.event].teams[(r.division || o.div) + '|' + (r.team || o.teamOf)]); return r ? teLink(r.event, r.division || o.div, r.team || o.teamOf) : null; })()) || o.compGo ? '#/e/' + enc(o.compGo(k)) : null }; });
     return { label: k, cells, sum: [es.filter((r) => r.place === 1).length, es.filter((r) => r.place <= 3).length, new Set(es.map((r) => r.year)).size] }; });
   return medalGrid(rows, years, { sumW: 170, sumHead: ['Titles', 'Podiums', 'Seasons'], labW: 180 });
 }
@@ -859,6 +862,7 @@ function clubTeamFlow(c, P, seasons, S, showBox) {
   return box;
 }
 ROUTES.c = async (id) => {
+  await games();
   const I = await index(); const ix = (I.clubs || []).find((x) => x.id === id); if (!ix) throw new Error('Club not found');
   const c = (await getJSON('c/' + String(ix.b).padStart(2, '0') + '.json'))[id]; await mpMap(); const C = COL();
   const S = c.sides, P = MP ? c.players.filter((p) => mpPass(p.k)) : c.players;
@@ -877,9 +881,10 @@ ROUTES.c = async (id) => {
   // season grid: best placing per team each season; ring = the club's strongest grass team that season (team level)
   const rows = S.map((s, i) => { const cells = {};
     s.ys.forEach((y) => { const rs = c.results.filter((r) => r.s === i && r.y === y); const best = rs.filter((r) => r.p).sort((a, b) => a.p - b.p)[0]; const top = (c.seasons[y] || {}).top === i;
-      cells[y] = { place: best ? best.p : null, sel: top, go: s.id ? '#/t/' + enc(s.id) : null, tip: [sideLabel(s) + ' · ' + y, ...(rs.length ? rs.map((r) => `${r.e}: ${r.p ? ord(r.p) : 'played'}${r.fl ? ' of ' + r.fl : ''}`) : ['On a roster, no placing in the data']), ...(top ? ['Strongest team in the club this season (team level ' + c.seasons[y].lv[i] + ')'] : [])] }; });
+      const gj = rs.map((r) => _games && _games[r.e] && _games[r.e].teams[r.d + '|' + r.t] ? teLink(r.e, r.d, r.t) : null).filter(Boolean);   // game-by-game where we hold it (EUCF, WUCC, tours, Nationals): the best-placed such event
+      cells[y] = { place: best ? best.p : null, sel: top, go: gj[0] || (s.id ? '#/t/' + enc(s.id) : null), tip: [sideLabel(s) + ' · ' + y, ...(rs.length ? rs.map((r) => `${r.e}: ${r.p ? ord(r.p) : 'played'}${r.fl ? ' of ' + r.fl : ''}`) : ['On a roster, no placing in the data']), ...(top ? ['Strongest team in the club this season (team level ' + c.seasons[y].lv[i] + ')'] : []), ...(gj.length ? ['click: that tournament game by game'] : [])] }; });
     return { label: sideLabel(s).length > 30 ? sideLabel(s).slice(0, 29) + '…' : sideLabel(s), go: s.id ? '#/t/' + enc(s.id) : null, cells }; });
-  out.push(card('Every team, season by season', 'Best finish each season (hover for every event). The ringed circle is the club’s strongest grass team that season by team level. A dot means the team was on a roster but has no placing in the data.', medalGrid(rows, years, { W: 1000, labW: 230 })));
+  out.push(card('Every team, season by season', 'Best finish each season (hover for every event). The ringed circle is the club’s strongest grass team that season by team level. A dot means the team was on a roster but has no placing in the data. Click a cell for that tournament game by game where we hold it (EUCF, WUCC, European tours, Nationals), otherwise the team page.', medalGrid(rows, years, { W: 1000, labW: 230 })));
   // indoor and beach strength over time (same measure as the Beach & Indoor page; display only)
   { const IB = await getJSON('ib.json').catch(() => null);
     if (IB) for (const F of ['Indoor', 'Beach']) { const FD = IB[F]; const k = FD && FD.clubs.find((x) => x.id === id); if (!k || !Object.keys(k.mx).length) continue;
@@ -949,6 +954,7 @@ ROUTES.c = async (id) => {
   return out;
 };
 ROUTES.t = async (id) => {
+  await games();
   const ix0 = (await index()).teams.find((x) => x.id === id); if (!ix0) throw new Error('Team not found');
   const t0 = (await getJSON('t/' + String(ix0.b).padStart(2, '0') + '.json'))[id]; const C = COL(); await mpMap();
   const t = MP ? { ...t0, grid: (t0.grid || []).filter((g) => mpPass(g.k)) } : t0;
@@ -961,7 +967,7 @@ ROUTES.t = async (id) => {
   const out = [h('div', { class: 'teamhead' }, badge(ix, 56), h('h1', null, t.team)), mpNote(), _club && _club.rel ? relLine('Related: ', _club.rel) : null, _club && _club.s > 1 ? h('p', { class: 'note' }, 'Part of ', h('a', { href: '#/c/' + enc(_club.id) }, h('b', null, _club.n + ' (club view →)')), _sibs.length ? ' · other teams: ' : '', ..._sibs.slice(0, 12).flatMap((x, i) => [i ? ', ' : '', h('a', { href: '#/t/' + enc(x.id) }, x.n + (x.d !== t.division ? ' (' + x.d + ')' : ''))]), _sibs.length > 12 ? ` and ${_sibs.length - 12} more` : '') : null, h('p', { class: 'sub' }, `${t.division} · ` + (t.history_only ? ((t.results || []).length ? `results ${t.first_year}–${t.last_year}` : `squad lists ${t.first_year}–${t.last_year}`) + ((t.grid || []).length ? ' (earlier seasons only)' : ' (no rosters in the data yet)') : `rosters ${t.first_year}–${t.last_year}, results from ${d3.min(res, (r) => r.year) ?? t.first_year}`)),
     tiles([['Seasons with rosters', t.history_only ? '—' : new Set((t.grid || []).flatMap((r) => Object.keys(r.cells))).size], ['Players used', MP ? (t.grid || []).length : t.players_used ?? '—', MP ? (MP === 'F' ? 'FMP' : 'MMP') + ' players on the rosters' : 'everyone who played at least once'], ['Average retention', ret.length ? pct(d3.mean(ret, (s) => s.retention)) : '—', 'of last season’s core roster back'],
       ['Major titles', majors.length, majors.length ? d3.rollups(majors, (v) => v.length, (r) => r.kind).map(([k, n]) => n + '× ' + k).join(', ') : 'Nationals, EUCF, WUCC, Elite Invite, masters worlds'], ['Podiums', res.filter((r) => r.place && r.place <= 3).length, 'all competitions in the data']]),
-    card('Honours by competition', 'Every finish we have, by competition and season. Gold, silver and bronze mark medals; a number is the place. Hover for the events; click to open the competition.', honours(res, { compGo: (k) => slug(k) }))];
+    card('Honours by competition', 'Every finish we have, by competition and season. Gold, silver and bronze mark medals; a number is the place. Hover for the events; click a cell for that tournament game by game where we hold it, otherwise the competition.', honours(res, { compGo: (k) => slug(k), teamOf: t.team, div: t.division }))];
   if (t.rating && t.rating.some((r) => r.comparable)) out.push(ratingCard(t, (await getJSON('trends.json')).ratings_ts));
   if (t.eucs && t.eucs.length) out.push(eucsCard(t.eucs, (await getJSON('trends.json')).eucs_uk, t.team, t.division));
   if (t.history_only && !(t.grid || []).length) return out;
@@ -1014,14 +1020,18 @@ ROUTES.t = async (id) => {
       const later = Object.keys(o).map(Number).filter((x) => x > y).sort((a, b) => a - b)[0];
       return later ? o[later] + ' (later)' : 'Not seen since'; };
     const ysel = h('select'), inB = h('div'), outB = h('div');
-    const pie = (L, f, title) => { const G = d3.groups(L, f).map(([k, v]) => ({ label: k, v: v.length, color: k === 'New to the data' || k === 'Not seen since' ? css('--axis') : k.startsWith('Back') ? C[5] : null, tip: [k, v.map((r) => r.n).join(', ')], onclick: (ev) => teamDrill(ev, `${title}: ${k}`, v, t) }));
+    const pie = (L, f, title) => { const G = d3.groups(L, f).map(([k, v]) => ({ label: k, v: v.length, color: /New to|Not seen/.test(k) ? css('--axis') : k.startsWith('Back') ? C[5] : null, tip: [k, v.map((r) => r.n + (r.d ? ' (' + r.d + ')' : '')).join(', ')], onclick: (ev) => peopleDrill(ev, `${title}: ${k} (${v.length})`, v.map((r) => ({ k: r.k, n: r.n, d: r.d || '' }))) }));
       return G.length ? donut(G, { W: 520, R: 80, max: 9, centreLab: 'players', otherClick: (ev, rest) => teamDrill(ev, `${title}: other clubs`, L.filter((r) => rest.some((d) => d.label === f(r))), t) }) : h('p', { class: 'note' }, 'Nobody.'); };
+    const FL = ((await flows()) || {})[id];   // one origin / destination rule for the whole site (model/team_flows.py): a club team wins over hats, sessions, GB or university
+    const flCat = (y, side, k) => { const Y = FL && FL[String(y)]; if (!Y) return null; for (const [cat, L] of Object.entries(Y[side])) if (L.some((r) => r[0] === k)) return cat; return null; };
+    const flDet = (y, side, k) => { const Y = FL && FL[String(y)]; if (!Y) return ''; for (const L of Object.values(Y[side])) { const r = L.find((r) => r[0] === k); if (r) return r[2]; } return ''; };
     const drawIO = () => { const y = +ysel.value, p = prevOf(y);
       const joined = core.filter((r) => r.ys.includes(y) && !r.ys.includes(p)), left = core.filter((r) => r.ys.includes(p) && !r.ys.includes(y));
-      inB.replaceChildren(h('h3', null, `Joined for ${y} (${joined.length})`), pie(joined, (r) => srcOf(r, y), `Joined for ${y}`));
-      outB.replaceChildren(h('h3', null, `Left after ${p} (${left.length})`), pie(left, (r) => dstOf(r, p), `Left after ${p}`)); };
+      const sf = (r) => flCat(y, 'in', r.k) || srcOf(r, y).replace('New to the data', 'New to our data'), df = (r) => flCat(y, 'out', r.k) || dstOf(r, p).replace('Not seen since', 'Not seen again');
+      inB.replaceChildren(h('h3', null, `Joined for ${y} (${joined.length})`), pie(joined.map((r) => ({ ...r, d: flDet(y, 'in', r.k) })), sf, `Joined for ${y}`));
+      outB.replaceChildren(h('h3', null, `Left after ${p} (${left.length})`), pie(left.map((r) => ({ ...r, d: flDet(y, 'out', r.k) })), df, `Left after ${p}`)); };
     ysel.replaceChildren(...seen.slice(1).reverse().map((y) => h('option', { value: y }, y))); ysel.onchange = drawIO; drawIO();
-    out.push(card('Where players came from and went', 'Same squads as the squad flow above. Joined: where each new player was the season before (or earlier). Left: where they went next. Click a slice for the players.', h('div', { class: 'controls' }, ysel), h('div', { class: 'grid2' }, inB, outB)));
+    out.push(card('Where players came from and went', 'Same squads as the squad flow above. Joined: where each new player came from (a club team within three years wins over hats, sessions, GB or university; same rule as the chart below). Left: where they went next. Click a slice for the players.', h('div', { class: 'controls' }, ysel), h('div', { class: 'grid2' }, inB, outB)));
     // squad strength over time, from the same squads
     const G1 = (y) => core.filter((r) => r.ys.includes(y));
     const pts = (f, fmt) => seen.map((y) => { const v = f(y); return { x: y, y: v, tip: [String(y), fmt(v)] }; });
@@ -1479,12 +1489,12 @@ ROUTES.e = async (arg) => {
       box.replaceChildren(h('div', { class: parts.length > 1 ? 'grid2' : '' }, parts.map((x) => { const Rx = R.filter((r) => subOf(r) === x), yx = [...new Set(Rx.map((r) => r.year))].sort((a, b) => a - b);
         const bx = d3.rollups(Rx, (v) => v.slice().sort((a, b) => (a.place || 999) - (b.place || 999))[0], (r) => r.team, (r) => r.year).sort((a, b) => b[1].length - a[1].length).slice(0, 8);
         const mx = Math.max(4, d3.max(bx.flatMap(([, v]) => v.map(([, r]) => r.place || 1))) || 4);
-        return h('div', null, h('h3', null, x + ` (${yx.length} season${yx.length === 1 ? '' : 's'})`), lineChart(bx.map(([t, v], i) => ({ name: t, color: C[i % 8], pts: v.map(([y, r]) => ({ x: y, y: r.place, r: r.place <= 3 ? 6 : 3.5, fill: MEDAL(r.place), tip: [t + ' · ' + y, `${r.event}: ${ord(r.place)}${r.field ? ' of ' + r.field : ''}`], go: '#/e/' + enc(id) + '/' + y })).filter((p) => p.y) })), { xs: yx, W: 560, H: 260, labels: true, yScale: d3.scaleLog, yDomain: [mx, 1], yAxis: d3.axisLeft(d3.scaleLog([mx, 1], [234, 12])).tickValues([1, 2, 3, 5, 10, 20].filter((v) => v <= mx)).tickFormat(ord) })); })),
+        return h('div', null, h('h3', null, x + ` (${yx.length} season${yx.length === 1 ? '' : 's'})`), lineChart(bx.map(([t, v], i) => ({ name: t, color: C[i % 8], pts: v.map(([y, r]) => ({ x: y, y: r.place, r: r.place <= 3 ? 6 : 3.5, fill: MEDAL(r.place), tip: [t + ' · ' + y, `${r.event}: ${ord(r.place)}${r.field ? ' of ' + r.field : ''}`], go: '#/e/' + enc(id) + '/' + y })).filter((p) => p.y) })), { xs: yx, W: 560, H: 260, labels: true, focus: true, yScale: d3.scaleLog, yDomain: [mx, 1], yAxis: d3.axisLeft(d3.scaleLog([mx, 1], [234, 12])).tickValues([1, 2, 3, 5, 10, 20].filter((v) => v <= mx)).tickFormat(ord) })); })),
         h('p', { class: 'note' }, 'Each event is its own chart, so teams that win different events in the same season are all visible. Pick one event, or all combined, above.'));
     } else if (!st.y) {
       const teams = best.map(([t, v]) => ({ t, pts: v.map(([y, r]) => ({ x: y, y: r.place, r: r.place <= 3 ? 6 : 3.5, fill: MEDAL(r.place), tip: [t + ' · ' + y, `${r.event}: ${ord(r.place)}${r.field ? ' of ' + r.field : ''}`, r.players ? r.players + ' players' : ''].filter(Boolean), go: '#/e/' + enc(id) + '/' + y })).filter((p) => p.y).sort((a, b) => a.x - b.x) })).filter((d) => d.pts.length).sort((a, b) => b.pts.length - a.pts.length || d3.min(a.pts, (p) => p.y) - d3.min(b.pts, (p) => p.y)).slice(0, 10);
       const mx = Math.max(4, d3.max(teams.flatMap((d) => d.pts), (p) => p.y) || 4);
-      box.replaceChildren(lineChart(teams.map((d, i) => ({ name: d.t, color: C[i % 8], pts: d.pts })), { xs: yrs, W: 1000, H: 320, labels: true, yScale: d3.scaleLog, yDomain: [mx, 1], yAxis: d3.axisLeft(d3.scaleLog([mx, 1], [294, 12])).tickValues([1, 2, 3, 5, 10, 20, 40].filter((v) => v <= mx)).tickFormat(ord) }),
+      box.replaceChildren(lineChart(teams.map((d, i) => ({ name: d.t, color: C[i % 8], pts: d.pts })), { xs: yrs, W: 1000, H: 320, labels: true, focus: true, yScale: d3.scaleLog, yDomain: [mx, 1], yAxis: d3.axisLeft(d3.scaleLog([mx, 1], [294, 12])).tickValues([1, 2, 3, 5, 10, 20, 40].filter((v) => v <= mx)).tickFormat(ord) }),
         h('p', { class: 'note' }, 'Higher = better. Medal colours mark podiums. Click a point for that year’s standings. Showing the ' + teams.length + ' UK teams with the most finishes here.'));
     } else {
       const rows = RA.filter((r) => String(r.year) === st.y).sort((a, b) => String(a.event).localeCompare(String(b.event)) || (a.place || 999) - (b.place || 999));
@@ -1556,6 +1566,8 @@ function showDrill(at, o) {
   if (at) at.after(el); else VIEW.append(el);
   el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
+// people drill for the new cards (Max, 17 Oct: a tile, not a list at the bottom). L: [{k, n, d?}] -> table with a profile link and a detail column
+const peopleDrill = (ev, title, L, note) => showDrill(anchorOf(ev), { title, note, head: ['Player', 'Detail'], rows: L.map((r) => ({ cells: [r.k && !r.k.startsWith('?') ? playerLink(r.k, r.n) : r.n, r.d || ''], sv: [r.n, r.d || ''] })), empty: 'No one in this group.' });
 const DIRW = { up: 'to a stronger team', level: 'similar level', down: 'to a weaker team', '': 'level unknown' };
 const mvRows = (D, L, o = {}) => L.slice().sort((a, b) => b.y - a.y || (b.dl ?? -999) - (a.dl ?? -999)).map((m) => { const w = D.who(m.p);
   return { cells: [pcell(w), m.y, m.frm, m.to, f0(m.a), f0(m.b), sgn(m.dl), m.ten, ...(o.extra ? o.extra(m) : [])], sv: [w.n, m.y, null, null, m.a, m.b, m.dl, m.ten] }; });
@@ -1728,12 +1740,12 @@ ROUTES.engage = async () => {
   // ---- sessions and community events
   { const pct = (a, b) => b ? d3.format('.0%')(a / b) : '—';
     const SC = [['intl', 'Also international / GB that year', COL()[1]], ['nat', 'Also Nationals', COL()[0]], ['tour', 'Also Tour / regionals', '#5b9bd5'], ['other', 'Something else', '#c9b46a'], ['none', 'Nothing else we can see', '#b9bdc3']];
-    const swho = h('div', { class: 'note' }, 'Click a block for the names.');
+    const swho = h('p', { class: 'note' }, 'Click a block for the names.');
     const sers = [...new Set(S.map((r) => r.label))].sort();
     const sviz = h('div', { class: 'grid2' }, ...sers.map((l) => { const R = S.filter((r) => r.label === l).sort((a, b) => a.y - b.y);
       return h('div', null, h('h3', null, l), h('p', { class: 'note' }, R[0].kind + (R.some((r) => r.back != null) ? ' · back from last year: ' + R.filter((r) => r.back != null).map((r) => `${r.y} ${pct(r.back, r.prev)}`).join(', ') : '')),
         barChart(R.map((r) => Object.assign({ x: String(r.y), _r: r }, ...SC.map(([k]) => ({ [k]: (r.who || []).filter((w) => w[2] === k).length })))), SC.map(([k, n, c]) => ({ key: k, name: n, color: c })),
-          { W: 480, H: 200, onClick: (d, k) => { const L = (d._r.who || []).filter((w) => w[2] === k.key); swho.replaceChildren(h('b', null, `${l} ${d.x}: ${k.name.toLowerCase()} (${L.length})`), h('div', null, ...L.map((w) => w[0].startsWith('?') ? h('span', { style: 'margin-right:10px;display:inline-block' }, w[1]) : h('a', { href: '#/p/' + enc(w[0]), style: 'margin-right:10px;display:inline-block' }, w[1])))); } })); }));
+          { W: 480, H: 200, onClick: (d, k, ev) => { const L = (d._r.who || []).filter((w) => w[2] === k.key); peopleDrill(ev, `${l} ${d.x}: ${k.name.toLowerCase()} (${L.length})`, L.map((w) => ({ k: w[0], n: w[1] }))); } })); }));
     out.push(card('Club sessions and community events', 'Series where we hold the names of who came: invite-only and seasonal club sessions, and hat tournaments. Each bar is everyone who came that year, coloured by the highest other thing we see them play that same year. Click a block for the names.',
       sviz, swho, h('details', null, h('summary', null, 'The numbers as a table'),
       h('div', { class: 'tscroll' }, table(['Series', 'Year', 'What', 'Sessions / teams', 'People', 'Waitlist', 'Back from last year', 'Also at a tournament that year', 'Also international that year', 'Never seen at a tournament'],
@@ -1830,7 +1842,8 @@ ROUTES.uni = async () => {
       const drawF = () => { flowBox.replaceChildren(ujSquadFlow(UJ.people[sel.value], I)); };
       drawF();
       const tot = (k) => ids.reduce((a, i) => a + UJ.unis[i][k], 0);
-      out.push(card('Universities with named squads', `For ${ids.length} universities we hold squads by name, from their own posts (${ids.map(nm).join(', ')}). That links university players to club, GB and community data before, during and after university. Click a university for its full picture.`,
+      const nInit = ids.reduce((a, i) => a + UJ.people[i].filter((p) => /^[A-Za-z]\.?\s/.test(p.n)).length, 0), nAll = ids.reduce((a, i) => a + UJ.people[i].length, 0);
+      out.push(card('Universities with named squads', `For ${ids.length} universities we hold squads by name, from their own posts (${ids.map(nm).join(', ')}). That links university players to club, GB and community data before, during and after university. "Before" and "after" are by calendar year: a club event in the autumn after a player's last university season counts as during, not after. ${nInit} of the ${nAll} names are initials only on the posts and can rarely be matched to club rows, so the club shares below are lower bounds. Click a university for its full picture.`,
         ujBars(UJ, ids, nm), h('h3', null, 'Where their players go after university'), h('p', { class: 'note' }, 'Club teams the leavers play for, counted once per player.'), ujDest(UJ, ids, nm),
         h('h3', null, 'Squad flow'), h('p', { class: 'note' }, 'Each column is a season; blocks are intakes; leavers are coloured by whether we see them playing after university.'), h('div', { class: 'controls' }, sel), flowBox,
         h('p', { class: 'note' }, ids.map((i) => h('a', { href: '#/u/' + enc(i), style: 'margin-right:12px' }, nm(i) + ' →'))))); } }
@@ -1904,20 +1917,20 @@ function ujSquadFlow(P, I) {
 // two 100% bars per university: who the squad players are, and what happened to the leavers
 function ujBars(UJ, ids, nmOf) {
   // Two plain questions per university, each bar = 100% of that university's players; click any segment for the names
-  const C = COL(), pc = d3.format('.0%'), who = h('div', { class: 'note' }, 'Click any coloured segment to list the players in it.');
-  const show = (title, L) => who.replaceChildren(h('b', null, `${title}: ${L.length} players`), h('div', null, ...L.sort((a, b) => a.n.localeCompare(b.n)).map((p) => h('a', { href: '#/p/' + enc(p.k), style: 'margin-right:10px;display:inline-block' }, p.n))));
-  const seg = (uni, L, n, color, what) => ({ v: n ? L.length / n : 0, label: L.length, color, tip: [nmOf(uni), `${L.length} of ${n} ${what} (${pc(n ? L.length / n : 0)})`], onclick: () => show(`${nmOf(uni)}, ${what}`, L) });
+  const C = COL(), pc = d3.format('.0%');
+  const show = (ev, title, L) => peopleDrill(ev, title, L.slice().sort((a, b) => a.n.localeCompare(b.n)).map((p) => ({ k: p.k, n: p.n, d: [p.pre && p.pre.top ? 'before: ' + p.pre.top : '', p.mid && p.mid.top ? 'during: ' + p.mid.top : '', p.to && p.to.length ? 'after: ' + p.to.join(', ') : ''].filter(Boolean).join(' · ') })), 'Names without a link are initials-only on the posts and not yet matched to a profile.');
+  const seg = (uni, L, n, color, what) => ({ v: n ? L.length / n : 0, label: L.length, color, tip: [nmOf(uni), `${L.length} of ${n} ${what} (${pc(n ? L.length / n : 0)})`], onclick: (ev) => show(ev, `${nmOf(uni)}: ${what} (${L.length})`, L) });
   const mk = (i) => { const P = UJ.people[i], n = P.length;
     const A = P.filter((p) => p.before), B = P.filter((p) => !p.before && (p.during || p.uni_club)), O = P.filter((p) => !p.before && !(p.during || p.uni_club));
-    return { label: `${nmOf(i)} (${n})`, parts: [seg(i, A, n, C[0], 'were already club players before university'), seg(i, B, n, C[2], 'started club while at university'), seg(i, O, n, '#b9bdc3', 'have only ever played university')] }; };
+    return { label: `${nmOf(i)} (${n})`, parts: [seg(i, A, n, C[0], 'were already club players before university'), seg(i, B, n, C[2], 'started club while at university'), seg(i, O, n, '#b9bdc3', 'show no club before or during university')] }; };
   const mk2 = (i) => { const J = UJ.people[i].filter((p) => p.judged), n = J.length;
     const Y = J.filter((p) => p.after), N = J.filter((p) => !p.after);
     return { label: `${nmOf(i)} (${n})`, parts: [seg(i, Y, n, C[2], 'leavers still playing after university'), seg(i, N, n, '#b9bdc3', 'leavers we never see play again')] }; };
   return h('div', null, h('div', { class: 'grid2' },
-    h('div', null, h('h3', null, 'Where did their squad players start?'), h('p', { class: 'note' }, 'Each bar is every named squad player at that university (number in brackets). Blue: already played club before they arrived. Green: first club team while at university. Grey: university only, no club in our data.'),
-      hbarsStack(ids.map(mk), { W: 480, labW: 150 }), legend([['Club before university', C[0]], ['Started club at university', C[2]], ['University only', '#b9bdc3']])),
+    h('div', null, h('h3', null, 'Where did their squad players start?'), h('p', { class: 'note' }, 'Each bar is every named squad player at that university (number in brackets). Blue: played club before they arrived. Green: first club team while at university. Grey: no club before or during university in our data (they may play club after; initials-only names are harder to match).'),
+      hbarsStack(ids.map(mk), { W: 480, labW: 150 }), legend([['Club before university', C[0]], ['Started club at university', C[2]], ['No club before or during', '#b9bdc3']])),
     h('div', null, h('h3', null, 'After they leave, do they keep playing?'), h('p', { class: 'note' }, `Only players whose last university season is over and we’ve had a club season since (number in brackets). Green: seen playing club, GB or community events after. Grey: not seen again.`),
-      hbarsStack(ids.map(mk2), { W: 480, labW: 150 }), legend([['Still playing', C[2]], ['Not seen again', '#b9bdc3']]))), who);
+      hbarsStack(ids.map(mk2), { W: 480, labW: 150 }), legend([['Still playing', C[2]], ['Not seen again', '#b9bdc3']]))), h('p', { class: 'note' }, 'Click any coloured segment to list the players in it.'));
 }
 // where graduates go: destination clubs stacked by university
 function ujDest(UJ, ids, nmOf) {
@@ -2628,20 +2641,20 @@ ROUTES.te = async (arg) => {
     return out; }; }
 
 // ---------- Acquisition and churn (Max, 17 Oct): under the squad flow, where joiners came from and where leavers went ----------
-const FIN = [['Returning to this team', '#5b9bd5'], ['From another club team', null], ['From university', '#8e5bb5'], ['From youth', null], ['From sessions & recreational', '#9aa39a'], ['GB squad only', '#24407a'], ['New to our data', '#d9c27a']];
-const FOUT = [['Back later (gap year)', '#9fc3e6'], ['Same club, other team', '#7fb08f'], ['To another club team', '#e08a3c'], ['Only university after', '#b99ad3'], ['Only sessions & recreational after', '#c4c9c4'], ['Only youth after', '#c4c9c4'], ['Only gb / national squad after', '#c4c9c4'], ['Not seen again', '#c0504d'], ['Not seen this season', '#e6a3a1']];
+const FIN = [['Returning to this team', '#5b9bd5'], ['Same club, other team', '#7fb08f'], ['From another club team', null], ['From university', '#8e5bb5'], ['From youth', '#2e9e6b'], ['Sessions & hats only before', '#9aa39a'], ['GB squad only', '#24407a'], ['New to our data', '#d9c27a']];
+const FOUT = [['Back later (gap year)', '#9fc3e6'], ['Same club, other team', '#7fb08f'], ['To another club team', '#e08a3c'], ['Only university after', '#b99ad3'], ['Only GB squad after', '#24407a'], ['Only youth after', '#c4c9c4'], ['Only sessions & hats after', '#c4c9c4'], ['Not seen again', '#c0504d'], ['Not seen this season', '#e6a3a1']];
 let _flows; async function flows() { if (_flows === undefined) _flows = await getJSON('flows.json').catch(() => null); return _flows; }
 async function churnCard(tid, title) {
   const F = (await flows() || {})[tid]; if (!F) return null; const C = COL(); const ys = Object.keys(F).sort();
-  const fin = FIN.map(([k, c]) => [k, c || (k === 'From another club team' ? C[2] : '#e0c341')]), key = (s) => 'k' + s.replace(/\W+/g, '');
+  const fin = FIN.map(([k, c]) => [k, c || C[2]]), key = (s) => 'k' + s.replace(/\W+/g, '');
   const data = ys.map((y) => { const o = { x: y }; fin.forEach(([k]) => { o[key(k)] = (F[y].in[k] || []).length; }); FOUT.forEach(([k]) => { o[key(k)] = (F[y].out[k] || []).length; }); return o; });
-  const who = h('div', { class: 'note' }, 'Click a block to list the players and where they came from or went.');
-  const show = (y, k, side) => { const L = (F[y][side][k] || []); who.replaceChildren(h('b', null, `${title} ${y}: ${k.toLowerCase()} (${L.length})`), h('div', null, ...L.map(([pk, n, d]) => h('div', null, h('a', { href: '#/p/' + enc(pk) }, n), d ? h('span', { class: 'muted' }, ' · ' + d) : '')))); };
+  const who = h('p', { class: 'note' }, 'Click a block for the players and where they came from or went.');
+  const show = (ev, y, k, side) => peopleDrill(ev, `${title} ${y}: ${k.toLowerCase()} (${(F[y][side][k] || []).length})`, (F[y][side][k] || []).map(([pk, n, d]) => ({ k: pk, n, d })));
   const keys = [...fin.map(([k, c]) => ({ key: key(k), name: k, color: c, lab: k, side: 'in' })), ...FOUT.map(([k, c]) => ({ key: key(k), name: k, color: c, neg: true, lab: k, side: 'out' }))].filter((k) => data.some((d) => d[k.key]));
   const tops = (side, cat) => { const c = {}; ys.forEach((y) => (F[y][side][cat] || []).forEach((r) => { const t = r[2].replace(/\s+\d{4}$/, ''); if (t) c[t] = (c[t] || 0) + 1; })); return Object.entries(c).sort((a, b) => b[1] - a[1]).slice(0, 8); };
   const fromC = tops('in', 'From another club team'), toC = tops('out', 'To another club team');
-  return card('Where players came from and where they went', 'Each season: above the line, players new to the squad, coloured by what we last saw them do; below, last season’s players who aren’t on it, coloured by what they did next. "New to our data" means no earlier record anywhere; "not seen again" means no later record anywhere (we hold mostly 2022+ rosters, so treat it as an upper bound). The latest season can’t show long-run leavers yet.',
-    barChart(data, keys, { W: 1000, H: 300, diverge: true, onClick: (d, k) => show(d.x, k.name, k.side) }), who,
+  return card('Where players came from and where they went', 'Each season: above the line, players new to the squad, by where they came from; below, last season’s players who aren’t on it, by where they went. A club team always wins over anything else (someone who played Fire of London and then a hat "came from Fire of London"); university, youth, GB and sessions only count when there is no club team within three years. "New to our data" = no earlier record anywhere; "not seen again" = no later record anywhere (rosters are thin before 2022, so treat it as an upper bound). The latest season can’t show long-run leavers yet. This uses the same rule as the "joined from" column on this page.',
+    barChart(data, keys, { W: 1000, H: 300, diverge: true, onClick: (d, k, ev) => show(ev, d.x, k.name, k.side) }), who,
     (fromC.length || toC.length) ? h('div', { class: 'grid2' },
       h('div', null, h('h3', null, 'Clubs that fed this team'), fromC.length ? hbars(fromC.map(([t, n]) => ({ label: t, v: n })), { W: 480, labW: 170, fmt: (v) => v + (v === 1 ? ' player' : ' players') }) : h('p', { class: 'note' }, 'None in the data.')),
       h('div', null, h('h3', null, 'Clubs its leavers went to'), toC.length ? hbars(toC.map(([t, n]) => ({ label: t, v: n })), { W: 480, labW: 170, fmt: (v) => v + (v === 1 ? ' player' : ' players') }) : h('p', { class: 'note' }, 'None in the data.'))) : null);
@@ -2656,26 +2669,29 @@ async function churnCard(tid, title) {
 // ---------- GB origins (Max, 17 Oct): what players did before their first GB squad ----------
 { const base = ROUTES.programme; ROUTES.programme = async () => { const out = await base(); const D = await getJSON('gb_origins.json').catch(() => null); if (!D) return out;
     const C = COL(), R = [['GB youth squad', C[1]], ['Youth club / junior', C[2]], ['University', '#8e5bb5'], ['Club', C[0]], ['Sessions & recreational', '#9aa39a'], ['Nothing before', '#d5d8dc']];
-    const st = { w: 'senior' }, box = h('div'), who = h('div', { class: 'note' });
+    const st = { w: 'senior', f: 'all' }, box = h('div'), who = h('p', { class: 'note' }, 'Click a block for the players.');
+    const fmtOf = (sq) => /beach/i.test(sq) ? 'beach' : /indoor/i.test(sq) ? 'indoor' : 'grass';
     const draw = () => { const Y = D[st.w], ys = Object.keys(Y).filter((y) => +y >= 2010).sort();
-      const data = ys.map((y) => { const o = { x: y }; R.forEach(([r], i) => { o['r' + i] = (Y[y][r] || []).length; }); return o; });
-      box.replaceChildren(barChart(data, R.map(([r, c], i) => ({ key: 'r' + i, name: r, color: c })).filter((k) => data.some((d) => d[k.key])), { W: 1000, H: 280, onClick: (d, k) => { const L = Y[d.x][k.name] || [];
-        who.replaceChildren(h('b', null, `${d.x}, first ${st.w === 'senior' ? 'senior ' : ''}GB squad, route: ${k.name.toLowerCase()} (${L.length})`), h('div', null, ...L.map(([pk, n, det, sq]) => h('div', null, h('a', { href: '#/p/' + enc(pk) }, n), h('span', { class: 'muted' }, ` · ${sq}${det ? ' · before: ' + det : ''}`))))); } })); who.textContent = 'Click a block for the players.'; };
+      const rowsOf = (y, r) => (Y[y][r] || []).filter((x) => st.f === 'all' || fmtOf(x[3]) === st.f);
+      const data = ys.map((y) => { const o = { x: y }; R.forEach(([r], i) => { o['r' + i] = rowsOf(y, r).length; }); return o; }).filter((o) => R.some((_, i) => o['r' + i]));
+      box.replaceChildren(barChart(data, R.map(([r, c], i) => ({ key: 'r' + i, name: r, color: c })).filter((k) => data.some((d) => d[k.key])), { W: 1000, H: 280, onClick: (d, k, ev) => { const L = rowsOf(d.x, k.name);
+        peopleDrill(ev, `${d.x}, first ${st.w === 'senior' ? 'senior ' : ''}GB squad${st.f === 'all' ? '' : ' (' + st.f + ')'}: ${k.name.toLowerCase()} (${L.length})`, L.map(([pk, n, det, sq]) => ({ k: pk, n, d: `${sq}${det ? ' · before: ' + det : ''}` }))); } })); };
     draw();
     out.splice(Math.min(2, out.length), 0, card('Where GB players came from', 'Each bar is the players whose first GB squad was that year, coloured by what we last saw them do before it, in this order: an earlier GB youth squad (senior view only), youth club, university, club, sessions and recreational, or nothing. "Nothing before" is mostly a data gap: our club rosters are thin before 2022, junior club events have no names, and we hold named university squads for only five universities from 2021-22. So read the recent years, and the blue and orange blocks, as the solid part.',
-      h('div', { class: 'seg' }, ...[['senior', 'First senior squad'], ['first', 'First squad of any age']].map(([k, l]) => h('button', { class: k === st.w ? 'on' : null, onclick: (e) => { st.w = k; e.target.parentNode.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === e.target)); draw(); } }, l))), box, who));
+      h('div', { class: 'controls' }, h('div', { class: 'seg' }, ...[['senior', 'First senior squad'], ['first', 'First squad of any age']].map(([k, l]) => h('button', { class: k === st.w ? 'on' : null, onclick: (e) => { st.w = k; e.target.parentNode.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === e.target)); draw(); } }, l))),
+        h('div', { class: 'seg' }, ...[['all', 'All surfaces'], ['grass', 'Grass'], ['beach', 'Beach'], ['indoor', 'Indoor']].map(([k, l]) => h('button', { class: k === st.f ? 'on' : null, onclick: (e) => { st.f = k; e.target.parentNode.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === e.target)); draw(); } }, l)))), box, who));
     return out; }; }
 
 // ---------- University ↔ club flows for Moves and Connections (Max, 17 Oct) ----------
 async function uniClubFlow(title, blurb) {
   const UJ = await getJSON('uni_journeys.json').catch(() => null); if (!UJ) return null;
   const NMU = (i) => i === 'kcl' ? 'KCL' : i[0].toUpperCase() + i.slice(1);
-  const st = { s: 'after', min: 1 }, box = h('div'), who = h('div', { class: 'note' }, 'Click a band for the players.');
+  const st = { s: 'after', min: 1 }, box = h('div'), who = h('p', { class: 'note' }, 'Click a band for the players.');
   const clubsOf = (p) => (st.s === 'after' ? (p.to || []) : ((p[st.s === 'before' ? 'pre' : 'mid'] || {}).clubs || [])).filter((c) => !/\(USA\)|\(.*\)$|^GB /.test(c));
   const draw = () => { const M = {};
     Object.entries(UJ.people).forEach(([u, P]) => P.forEach((p) => [...new Set(clubsOf(p))].forEach((c) => { const k = u + '|' + c; (M[k] = M[k] || []).push(p); })));
     const links = Object.entries(M).filter(([, L]) => L.length >= st.min).map(([k, L]) => { const [u, c] = k.split('|'); return { a: NMU(u), b: c, v: L.length, tip: [`${NMU(u)} → ${c}`, `${L.length} player${L.length > 1 ? 's' : ''}`],
-      onclick: () => who.replaceChildren(h('b', null, `${NMU(u)} and ${c}, ${st.s} university (${L.length})`), h('div', null, ...L.map((p) => h('a', { href: '#/p/' + enc(p.k), style: 'margin-right:10px;display:inline-block' }, p.n)))) }; });
+      onclick: (ev) => peopleDrill(ev, `${NMU(u)} and ${c}, ${st.s} university (${L.length})`, L.map((p) => ({ k: p.k, n: p.n, d: `${p.s0}–${p.s1}` }))) }; });
     box.replaceChildren(links.length ? flow2(links, { W: 1000, labW: 170 }) : h('p', { class: 'note' }, 'Nothing at this threshold.')); };
   draw();
   return card(title, blurb + ' Universities with named squads only: ' + Object.keys(UJ.people).map(NMU).join(', ') + '.',
@@ -2690,9 +2706,9 @@ async function uniClubFlow(title, blurb) {
     const C = COL(), P = Object.entries(UJ.people).flatMap(([u, L]) => L.map((p) => ({ ...p, u }))), S = [...new Set(P.flatMap((p) => p.ys))].sort();
     const by = S.map((s) => { const L = P.filter((p) => p.ys.includes(s)), n = L.length || 1, fr = L.filter((p) => p.s0 === s);
       return { x: s, n: L.length, fresh: fr.length, before: L.filter((p) => p.before).length / n, during: L.filter((p) => p.during || p.uni_club).length / n, gby: L.filter((p) => p.gb_youth_before).length / n, gb: L.filter((p) => p.gb).length / n, _L: L }; });
-    const who = h('div', { class: 'note' }, 'Click a point for the players.');
-    const line = (k, name, col) => ({ name, color: col, pts: by.map((b) => ({ x: b.x, y: b[k], tip: [b.x, `${name}: ${d3.format('.0%')(b[k])} of ${b.n} squad players`], onclick: () => { const L = b._L.filter((p) => k === 'before' ? p.before : k === 'during' ? (p.during || p.uni_club) : k === 'gby' ? p.gb_youth_before : p.gb);
-      who.replaceChildren(h('b', null, `${b.x}: ${name.toLowerCase()} (${L.length})`), h('div', null, ...L.map((p) => h('a', { href: '#/p/' + enc(p.k), style: 'margin-right:10px;display:inline-block' }, p.n)))); } })) });
+    const who = h('p', { class: 'note' }, 'Click a point for the players.');
+    const line = (k, name, col) => ({ name, color: col, pts: by.map((b) => ({ x: b.x, y: b[k], tip: [b.x, `${name}: ${d3.format('.0%')(b[k])} of ${b.n} squad players`], onclick: (ev) => { const L = b._L.filter((p) => k === 'before' ? p.before : k === 'during' ? (p.during || p.uni_club) : k === 'gby' ? p.gb_youth_before : p.gb);
+      peopleDrill(ev, `${b.x}: ${name.toLowerCase()} (${L.length})`, L.map((p) => ({ k: p.k, n: p.n, d: (p.u === 'kcl' ? 'KCL' : p.u[0].toUpperCase() + p.u.slice(1)) + (k === 'before' && p.pre ? ' · before: ' + p.pre.top + (p.pre.clubs.length ? ' (' + p.pre.clubs.slice(0, 3).join(', ') + ')' : '') : k === 'during' && p.mid ? ' · during: ' + (p.mid.top || '') + (p.mid.clubs.length ? ' (' + p.mid.clubs.slice(0, 3).join(', ') + ')' : '') : '') }))); } })) });
     const i = out.findIndex((n) => n && n.querySelector && /University leavers/.test((n.querySelector('h2') || {}).textContent || ''));
     out.splice(i >= 0 ? i : out.length, 0, card('The university pathway, season by season', `Everyone on the named squads of ${Object.keys(UJ.people).length} universities each season: how many there are (and how many are first-years), and what share already played club before university, play club while there, came through GB youth, or have been on any GB squad. Small, strong programmes only, so read the direction rather than the level.`,
       h('div', { class: 'grid2' }, barChart(by.map((b) => ({ x: b.x, old: b.n - b.fresh, fresh: b.fresh })), [{ key: 'fresh', name: 'First season on a squad', color: '#8e5bb5' }, { key: 'old', name: 'Returning', color: '#c9b3dd' }], { W: 480, H: 240 }),
