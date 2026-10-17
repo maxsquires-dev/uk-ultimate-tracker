@@ -2,6 +2,72 @@
  "updates": [
   {
    "date": "2026-10-17",
+   "title": "Explorer, tournament journeys, churn, GB origins",
+   "items": [
+    {
+     "page": "engage",
+     "card": "People explorer",
+     "text": "Find people by what they played: level, format, how often and when. Presets such as \"lots of beach, one grass event\". Click any ladder cell to filter it.",
+     "href": "#/engage"
+    },
+    {
+     "page": "te",
+     "card": "Tournament journeys",
+     "text": "Game by game for a team at an event: EUCF 2023–26, WUCC 2014 and 2022, EUCS tours, Elite Invite, Tom’s, Windmill, and opponents with spirit from UKU sheets. Linked from event standings and team pages.",
+     "href": "#/te/2025%20EUCF%20Wroclaw%7COpen%7CClapham"
+    },
+    {
+     "page": "events",
+     "card": "Event overview",
+     "text": "Overview / Open / Women’s / Mixed buttons; all-time team entries, player places and average spirit.",
+     "href": "#/e/uku-nationals"
+    },
+    {
+     "page": "t",
+     "card": "Where players came from and where they went",
+     "text": "Under the squad flow on team and club pages: joiners by origin, leavers by destination, clubs that fed the team and took its players. Click for names.",
+     "href": "#/t/deep-space-mixed"
+    },
+    {
+     "page": "programme",
+     "card": "Where GB players came from",
+     "text": "Each year’s first-time GB players by what we saw them do before: GB youth, university, club, recreational, or nothing yet.",
+     "href": "#/programme"
+    },
+    {
+     "page": "moves",
+     "card": "University → club",
+     "text": "Universities joined to the clubs their players played for before, during and after university. Also on Connections.",
+     "href": "#/moves"
+    },
+    {
+     "page": "uni",
+     "card": "University player ranking",
+     "text": "University players ranked against each other only, from their team results and events played. Shown on profiles too.",
+     "href": "#/uni"
+    },
+    {
+     "page": "trends",
+     "card": "The university pathway, season by season",
+     "text": "Squad sizes, first-years, and shares with club before, club during and GB youth.",
+     "href": "#/trends"
+    },
+    {
+     "page": "findings",
+     "card": "New findings",
+     "text": "Added: after recreation (38% of people first seen at sessions or hats later play a tournament), after GB youth, and GB and university. Findings are grouped by topic.",
+     "href": "#/findings"
+    },
+    {
+     "page": "engage",
+     "card": "Club sessions and community events",
+     "text": "Now charts: each year’s attendees by what else they played that year; click for names.",
+     "href": "#/engage"
+    }
+   ]
+  },
+  {
+   "date": "2026-10-17",
    "title": "University squads, spirit scores, masters rules",
    "items": [
     {
