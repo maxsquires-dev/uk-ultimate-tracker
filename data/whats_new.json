@@ -1,21 +1,94 @@
 {
  "updates": [
-  {"date": "2026-10-17", "title": "University squads, spirit scores, masters rules",
+  {
+   "date": "2026-10-17",
+   "title": "University squads, spirit scores, masters rules",
    "items": [
-    {"page": "uni", "card": "Universities with named squads", "text": "Five universities' squads by name (Loughborough, Bath, KCL, Leeds, Exeter) from their own posts: squad flow, who plays club, where graduates go.", "href": "#/uni"},
-    {"page": "u", "card": "Squad flow", "text": "Each university page: squad flow with leavers coloured by whether we see them playing after university; before, during and after; clubs connected.", "href": "#/u/loughborough"},
-    {"page": "engage", "card": "University → club", "text": "Students who play club while at university are seen in the sport after it far more often (48% vs 4% of leavers we can judge).", "href": "#/engage"},
-    {"page": "spirit", "card": "Spirit of the Game", "text": "New Spirit page: UKU's published spirit scores 2021-22 to 2025-26, by kind of event and season, highs and lows, and spirit against retention. Spirit over time on every club and university page.", "href": "#/spirit"},
-    {"page": "findings", "card": "Do university players who also play club", "text": "New finding (university → club) and four university questions in the question bank; age limits from eligibility rules added to the age finding.", "href": "#/findings"},
-    {"page": "c", "card": "Spirit over time", "text": "Club pages: spirit received and given at every scored event, best and lowest, by kind of event.", "href": "#/c/reading-ultimate"},
-    {"page": "p", "card": "Career", "text": "Masters sides at open-age events (Tom's Tourney) can take young pickups: those are marked as pickups, never counted as masters players.", "href": "#/p/alex%20bradshaw"},
-    {"page": "engage", "card": "Into masters", "text": "Masters, Grand Masters and Great Grand Masters ages confirmed (30/33, 37/40, 45/48) and recorded; no player in the data breaks them.", "href": "#/engage"}
-   ]},
-  {"date": "2026-10-16", "title": "Engagement section and the data model",
+    {
+     "page": "uni",
+     "card": "Universities with named squads",
+     "text": "Five universities' squads by name (Loughborough, Bath, KCL, Leeds, Exeter) from their own posts: squad flow, who plays club, where graduates go.",
+     "href": "#/uni"
+    },
+    {
+     "page": "u",
+     "card": "Squad flow",
+     "text": "Each university page: squad flow with leavers coloured by whether we see them playing after university; before, during and after; clubs connected.",
+     "href": "#/u/loughborough"
+    },
+    {
+     "page": "engage",
+     "card": "University → club",
+     "text": "Students who play club while at university are seen in the sport after it far more often (48% vs 4% of leavers we can judge).",
+     "href": "#/engage"
+    },
+    {
+     "page": "trends",
+     "card": "University leavers seen in the club game",
+     "text": "Trends: the share of university leavers seen playing afterwards, by the season they left.",
+     "href": "#/trends"
+    },
+    {
+     "page": "engage",
+     "card": "The populations",
+     "text": "Engagement: a Recreational population (sessions, hats, beginners events, leagues) alongside club, university, junior and masters; and what kinds of event the UKU calendar lists each year.",
+     "href": "#/engage"
+    },
+    {
+     "page": "spirit",
+     "card": "Spirit of the Game",
+     "text": "New Spirit page: UKU's published spirit scores 2021-22 to 2025-26, by kind of event and season, highs and lows, and spirit against retention. Spirit over time on every club and university page.",
+     "href": "#/spirit"
+    },
+    {
+     "page": "findings",
+     "card": "Do university players who also play club",
+     "text": "New finding (university → club) and four university questions in the question bank; age limits from eligibility rules added to the age finding.",
+     "href": "#/findings"
+    },
+    {
+     "page": "c",
+     "card": "Spirit over time",
+     "text": "Club pages: spirit received and given at every scored event, best and lowest, by kind of event.",
+     "href": "#/c/reading-ultimate"
+    },
+    {
+     "page": "p",
+     "card": "Career",
+     "text": "Masters sides at open-age events (Tom's Tourney) can take young pickups: those are marked as pickups, never counted as masters players.",
+     "href": "#/p/alex%20bradshaw"
+    },
+    {
+     "page": "engage",
+     "card": "Into masters",
+     "text": "Masters, Grand Masters and Great Grand Masters ages confirmed (30/33, 37/40, 45/48) and recorded; no player in the data breaks them.",
+     "href": "#/engage"
+    }
+   ]
+  },
+  {
+   "date": "2026-10-16",
+   "title": "Engagement section and the data model",
    "items": [
-    {"page": "engage", "card": "The participation ladder", "text": "Engagement page: participation ladder by level, format and segment; team sizes; club sessions and hats (Elite Jan, Deep Space, SYC Charity Hat); journeys; into masters.", "href": "#/engage"},
-    {"page": "findings", "card": "Questions we are trying to answer", "text": "Question bank: every question we are trying to answer, by stage of involvement, with what would answer it.", "href": "#/findings#questions"},
-    {"page": "teams", "card": "", "text": "Teams page: filter by format and age group.", "href": "#/teams"}
-   ]}
+    {
+     "page": "engage",
+     "card": "The participation ladder",
+     "text": "Engagement page: participation ladder by level, format and segment; team sizes; club sessions and hats (Elite Jan, Deep Space, SYC Charity Hat); journeys; into masters.",
+     "href": "#/engage"
+    },
+    {
+     "page": "findings",
+     "card": "Questions we are trying to answer",
+     "text": "Question bank: every question we are trying to answer, by stage of involvement, with what would answer it.",
+     "href": "#/findings#questions"
+    },
+    {
+     "page": "teams",
+     "card": "",
+     "text": "Teams page: filter by format and age group.",
+     "href": "#/teams"
+    }
+   ]
+  }
  ]
 }

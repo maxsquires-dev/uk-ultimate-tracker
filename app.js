@@ -2142,6 +2142,12 @@ ROUTES.trends = async () => {
         legend([['Open', C[0]], ['Women', C[3]], ['Mixed', C[2]]])); };
     draw();
     out.push(card('Player trajectories', 'Every player with 3+ scored seasons: how established they are (Standing, across) against how fast they are improving (Trajectory, up). Top right = established and still rising; top left = rising newer players; bottom right = established but past their peak. Switch to the individual part to take club moves out of it. Click a dot for the profile.', h('div', { class: 'controls' }, parts, dsel), sb)); }
+  // university -> club over time (uni_journeys.json): leavers by last university season, share seen playing afterwards
+  { const UJ = await getJSON('uni_journeys.json').catch(() => null);
+    if (UJ) { const by = {}; Object.values(UJ.people).forEach((P) => P.forEach((p) => { if (!p.judged) return; const b = by[p.s1] = by[p.s1] || { n: 0, a: 0, cn: 0, ca: 0 }; b.n++; b.a += p.after; if (p.during || p.uni_club) { b.cn++; b.ca += p.after; } })); const ss = Object.keys(by).sort();
+      if (ss.length >= 2) out.push(card('University leavers seen in the club game', `For the ${Object.keys(UJ.unis).length} universities with named squads: of the players whose last university season was each year, the share we see playing (club, GB, community) afterwards. Only seasons that ended before ${UJ.last_club_year} can be judged, so the line is short.`,
+        lineChart([{ name: 'All leavers', color: C[0], w: 3, pts: ss.map((x) => ({ x, y: by[x].a / by[x].n, tip: [x, `${by[x].a} of ${by[x].n} leavers seen after`] })) }, { name: 'Played club while at university', color: C[2], pts: ss.filter((x) => by[x].cn >= 3).map((x) => ({ x, y: by[x].ca / by[x].cn, tip: [x, `${by[x].ca} of ${by[x].cn} club players seen after`] })) }],
+          { W: 1000, H: 220, yDomain: [0, 1], yFmt: d3.format('.0%'), xs: ss, legend: true }), h('p', { class: 'note' }, h('a', { href: '#/engage' }, 'University → club on the Engagement page →')))); } }
   return out;
 };
 
